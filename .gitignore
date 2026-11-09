@@ -27,3 +27,9 @@ coverage/
 htmlcov/
 .pytest_cache/
 sam-debug.log
+
+# Demo images kept locally until their licence is confirmed
+demo-assets/
+
+# Stray lockfile from running npm in the repo root (real one is frontend/package-lock.json)
+/package-lock.json
