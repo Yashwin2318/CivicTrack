@@ -1,0 +1,8 @@
+{
+    "TableName":  "CivicTrack-Complaints",
+    "Key":  {
+                "complaintId":  {
+                                    "S":  "CT-3AC9E60B7A"
+                                }
+            }
+}

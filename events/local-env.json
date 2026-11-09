@@ -1,0 +1,13 @@
+{
+    "ComplaintsFunction": {
+        "COMPLAINTS_TABLE": "CivicTrack-Complaints",
+        "ENABLE_LOCAL_DEMO_AUTH": "true",
+        "S3_BUCKET": "civictrack-evidence",
+        "S3_INTERNAL_ENDPOINT_URL": "http://host.docker.internal:8333",
+        "S3_PRESIGN_ENDPOINT_URL": "http://localhost:8333",
+        "S3_ACCESS_KEY_ID": "admin",
+        "S3_SECRET_ACCESS_KEY": "secret",
+        "UPLOAD_URL_TTL_SECONDS": "300",
+        "ALLOWED_ORIGIN": "http://localhost:5173"
+    }
+}

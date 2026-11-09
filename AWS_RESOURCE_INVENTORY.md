@@ -1,0 +1,40 @@
+# CivicTrack — AWS Resource Inventory
+
+Account `9862…` (masked), region **ap-south-1**, CloudFormation stack **`civictrack-dev`** (status `UPDATE_COMPLETE`, last updated 2026-11-02). Verified read-only on 2026-11-09. Every resource below is defined in `infrastructure/template.yaml`; no resource exists outside the stack except the SAM artifact bucket and the Lambda-created log groups.
+
+| Logical ID | Type | Physical name / identifier | Purpose | Change in this work (not deployed) |
+|---|---|---|---|---|
+| CivicTrackUserPool | Cognito User Pool | `CivicTrack-Users` · `ap-south-1_IfgVg8fLu` | Identities; email login; strong password policy | none |
+| CivicTrackUserPoolClient | Cognito App Client | `CivicTrack-Web-Client` · `2k31829dp05hbdogg9qbuegvk` | Public SPA client (no secret) | none (recommend dropping `ALLOW_USER_PASSWORD_AUTH`) |
+| CivicTrackCitizenGroup / OfficerGroup / AdminGroup | Cognito groups | `Citizen`, `Officer`, `Admin` | Role source for authorization | none |
+| CivicTrackApi | API Gateway REST | `CivicTrack-API`, stage `dev` · `https://4s044dr8u8.execute-api.ap-south-1.amazonaws.com/dev/` | Cognito-authorized API | +6 routes (detail, details update, unassign, reopen, close, officers) |
+| ComplaintsTable | DynamoDB | `CivicTrack-Complaints` (PK `complaintId`, on-demand, SSE) | Complaint records | none — table untouched; new attributes are additive |
+| EvidenceBucket | S3 | `EvidenceBucketName` stack output | Private evidence/proof photos | + lifecycle rule (abort incomplete multipart uploads after 1 day) |
+| ComplaintsExecutionRole | IAM role | `CivicTrack-Lambda-Execution-Role` | Lambda permissions | − `dynamodb:DeleteItem` (unused) |
+| ComplaintsFunction | Lambda | `CivicTrack-Complaints` (python3.14, 512 MB, 60 s) | API + SLA sweep | new code; `VIEW_URL_TTL_SECONDS` env var |
+| SlaScheduleRule | EventBridge rule | `CivicTrack-SLA-Checker`, `rate(15 minutes)` | SLA sweep trigger | none |
+| SlaScheduleInvokePermission | Lambda permission | — | Allows EventBridge to invoke | none |
+| CivicTrackPostConfirmationRole | IAM role | `CivicTrack-PostConfirmation-Role` | Add confirmed users to Citizen | none |
+| CivicTrackPostConfirmationFunction | Lambda | `CivicTrack-PostConfirmation` (128 MB, 10 s) | Cognito trigger | none |
+| CivicTrackPostConfirmationInvokePermission | Lambda permission | — | Allows Cognito to invoke | none |
+
+Outside the template:
+
+| Resource | Notes |
+|---|---|
+| `/aws/lambda/CivicTrack-Complaints` log group | Created implicitly by Lambda. Retention **never expire**; ~454 KB stored. |
+| `/aws/lambda/CivicTrack-PostConfirmation` log group | Same; ~0.5 KB. |
+| `civictrack-sam-artifacts-…-ap-south-1` S3 bucket | SAM deployment artifacts (`resolve_s3`). |
+| SES identity | Sender `SesSenderEmail` parameter. Account in **sandbox**, 200 emails / 24 h. |
+
+## Stack parameters (current deployed values)
+
+| Parameter | Value | Note |
+|---|---|---|
+| AllowedOrigin | `*` | Restrict to the hosted frontend origin once it has a stable URL |
+| SesSenderEmail / AdminNotificationEmail | owner's mailbox | |
+| SlaWarningHours | 4 | |
+
+## Data stored (live, read-only check)
+
+6 complaints: 1 `PENDING` unassigned, 1 `PENDING` assigned (legacy → shown as `ASSIGNED`), 4 `RESOLVED`. No coordinates, zones or wards yet.

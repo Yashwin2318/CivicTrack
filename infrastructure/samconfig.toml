@@ -1,0 +1,13 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "civictrack-dev"
+resolve_s3 = true
+s3_prefix = "civictrack-dev"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+image_repositories = []
+parameter_overrides = "AllowedOrigin=\"*\""
+
+[default.global.parameters]
+region = "ap-south-1"

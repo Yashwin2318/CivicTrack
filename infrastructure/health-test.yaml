@@ -1,0 +1,26 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: CivicTrack application import diagnostic
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Timeout: 15
+    MemorySize: 256
+    Architectures:
+      - x86_64
+
+Resources:
+  ImportTestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/complaints/
+      Handler: import_test.lambda_handler
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: GET

@@ -1,0 +1,20 @@
+{
+    "httpMethod": "PATCH",
+    "path": "/complaints/CT-3AC9E60B7A/assign",
+    "pathParameters": {
+        "complaintId": "CT-3AC9E60B7A"
+    },
+    "requestContext": {
+        "authorizer": {
+            "claims": {
+                "sub": "admin-001",
+                "email": "admin@example.com",
+                "cognito:groups": [
+                    "Admin"
+                ]
+            }
+        }
+    },
+    "body": "{\"officerSub\":\"officer-002\",\"officerName\":\"Demo Officer Two\"}",
+    "isBase64Encoded": false
+}

@@ -1,0 +1,15 @@
+{
+    "httpMethod": "GET",
+    "path": "/complaints",
+    "requestContext": {
+        "authorizer": {
+            "claims": {
+                "sub": "officer-999",
+                "email": "otherofficer@example.com",
+                "cognito:groups": [
+                    "Officer"
+                ]
+            }
+        }
+    }
+}

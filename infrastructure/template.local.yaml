@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: CivicTrack LOCAL development template - do not deploy
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+      - x86_64
+
+Resources:
+  CivicTrackUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: CivicTrack-Users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  CivicTrackUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: CivicTrack-Web-Client
+      UserPoolId: !Ref CivicTrackUserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  CivicTrackCitizenGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Citizen
+      Description: CivicTrack citizens
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackOfficerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Officer
+      Description: CivicTrack complaint handling officers
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admin
+      Description: CivicTrack administrators
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: CivicTrack-API-LOCAL
+      StageName: dev
+      Cors:
+        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization,X-Local-Demo-Role,X-Local-Demo-Sub,X-Local-Demo-Email'"
+        AllowOrigin: "'http://localhost:5173'"
+
+  ComplaintsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CivicTrack-Complaints
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: complaintId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: complaintId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  ComplaintsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CivicTrack-Lambda-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CivicTrack-DynamoDB-Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !GetAtt ComplaintsTable.Arn
+                  - !Sub "${ComplaintsTable.Arn}/index/*"
+
+        - PolicyName: CivicTrack-CloudWatch-Logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ComplaintsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: CivicTrack-Complaints-LOCAL
+      CodeUri: ../backend/complaints/
+      Handler: app.lambda_handler
+      Role: !GetAtt ComplaintsExecutionRole.Arn
+      Environment:
+        Variables:
+          COMPLAINTS_TABLE: !Ref ComplaintsTable
+          ALLOWED_ORIGIN: "http://localhost:5173"
+          ENABLE_LOCAL_DEMO_AUTH: "true"
+          S3_BUCKET: ""
+          S3_INTERNAL_ENDPOINT_URL: ""
+          S3_PRESIGN_ENDPOINT_URL: ""
+          S3_ACCESS_KEY_ID: ""
+          S3_SECRET_ACCESS_KEY: ""
+          UPLOAD_URL_TTL_SECONDS: "300"
+
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /health
+            Method: GET
+
+        CreateComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints
+            Method: POST
+
+        GetComplaints:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints
+            Method: GET
+
+        AssignComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/assign
+            Method: PATCH
+
+        StartComplaintWork:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/start
+            Method: PATCH
+
+        ResolveComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/resolve
+            Method: PATCH
+
+        CitizenEvidenceUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /evidence/upload-url
+            Method: POST
+
+        OfficerProofUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/proof-upload-url
+            Method: POST
+        GetComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}
+            Method: GET
+        UpdateComplaintDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}
+            Method: PATCH
+        UnassignComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/unassign
+            Method: PATCH
+        ReopenComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/reopen
+            Method: PATCH
+        CloseComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/close
+            Method: PATCH
+        ListOfficers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /officers
+            Method: GET
+
+Outputs:
+  ApiUrl:
+    Description: Local CivicTrack API endpoint
+    Value: http://127.0.0.1:3000/

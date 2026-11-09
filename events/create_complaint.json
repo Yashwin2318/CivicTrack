@@ -1,0 +1,20 @@
+{
+    "httpMethod": "POST",
+    "path": "/complaints",
+    "headers": {
+        "Content-Type": "application/json"
+    },
+    "requestContext": {
+        "authorizer": {
+            "claims": {
+                "sub": "test-citizen-001",
+                "email": "citizen@example.com",
+                "cognito:groups": [
+                    "Citizen"
+                ]
+            }
+        }
+    },
+    "body": "{\"title\":\"Garbage not collected\",\"category\":\"Sanitation\",\"location\":\"Whitefield, Bengaluru\",\"description\":\"Garbage has not been collected for three days.\",\"photoKey\":\"citizens/test-citizen-001/complaint-evidence/14192adaf4a54963a0cb5d26c2af0d69.jpg\"}",
+    "isBase64Encoded": false
+}

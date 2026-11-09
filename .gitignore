@@ -1,0 +1,29 @@
+# React
+node_modules/
+dist/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# AWS SAM
+.aws-sam/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Temporary files
+*.zip
+
+# AWS credentials
+.aws/
+# Test and tooling output
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+sam-debug.log
