@@ -1,0 +1,377 @@
+﻿AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CivicTrack serverless civic complaint platform with Cognito, DynamoDB, private S3 evidence storage, SES notifications and scheduled SLA escalation
+
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Browser origin allowed to call the API and upload evidence. Restrict this to the deployed frontend origin after hosting.
+  SesSenderEmail:
+    Type: String
+    Default: yashwinunofficially@gmail.com
+    Description: Verified Amazon SES sender identity. Verify this address using the SES verification email before expecting delivery.
+  AdminNotificationEmail:
+    Type: String
+    Default: yashwinunofficially@gmail.com
+    Description: Administrator mailbox for new complaint and SLA notifications.
+  SlaWarningHours:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 24
+    Description: Send the first SLA warning this many hours before the 48-hour deadline.
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Timeout: 60
+    MemorySize: 512
+    Architectures:
+      - x86_64
+
+Resources:
+  CivicTrackUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: CivicTrack-Users
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      LambdaConfig:
+        PostConfirmation: !GetAtt CivicTrackPostConfirmationFunction.Arn
+
+  CivicTrackUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: CivicTrack-Web-Client
+      UserPoolId: !Ref CivicTrackUserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  CivicTrackCitizenGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Citizen
+      Description: CivicTrack citizens
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackOfficerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Officer
+      Description: CivicTrack complaint handling officers
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admin
+      Description: CivicTrack administrators
+      UserPoolId: !Ref CivicTrackUserPool
+
+  CivicTrackApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: CivicTrack-API
+      StageName: dev
+      Cors:
+        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+      Auth:
+        DefaultAuthorizer: CivicTrackCognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CivicTrackCognitoAuthorizer:
+            UserPoolArn: !GetAtt CivicTrackUserPool.Arn
+
+  ComplaintsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CivicTrack-Complaints
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: complaintId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: complaintId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Ref AllowedOrigin
+            AllowedMethods:
+              - PUT
+              - GET
+              - HEAD
+            AllowedHeaders:
+              - '*'
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+
+  ComplaintsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CivicTrack-Lambda-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CivicTrack-DynamoDB-Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !GetAtt ComplaintsTable.Arn
+                  - !Sub "${ComplaintsTable.Arn}/index/*"
+        - PolicyName: CivicTrack-Evidence-S3-Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${EvidenceBucket.Arn}/*"
+        - PolicyName: CivicTrack-Verify-Officer-Group
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:ListUsersInGroup
+                Resource: !Sub "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+        - PolicyName: CivicTrack-SES-Send-Email
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+        - PolicyName: CivicTrack-CloudWatch-Logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  ComplaintsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: CivicTrack-Complaints
+      CodeUri: ../backend/complaints/
+      Handler: app.lambda_handler
+      Role: !GetAtt ComplaintsExecutionRole.Arn
+      Environment:
+        Variables:
+          COMPLAINTS_TABLE: !Ref ComplaintsTable
+          USER_POOL_ID: !Ref CivicTrackUserPool
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          S3_BUCKET: !Ref EvidenceBucket
+          S3_INTERNAL_ENDPOINT_URL: ""
+          S3_PRESIGN_ENDPOINT_URL: ""
+          S3_ACCESS_KEY_ID: ""
+          S3_SECRET_ACCESS_KEY: ""
+          UPLOAD_URL_TTL_SECONDS: "300"
+          SES_FROM_EMAIL: !Ref SesSenderEmail
+          ADMIN_NOTIFICATION_EMAIL: !Ref AdminNotificationEmail
+          SLA_WARNING_HOURS: !Ref SlaWarningHours
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        CreateEvidenceUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /evidence/upload-url
+            Method: POST
+        CreateOfficerProofUploadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/proof-upload-url
+            Method: POST
+        CreateComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints
+            Method: POST
+        GetComplaints:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints
+            Method: GET
+        AssignComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/assign
+            Method: PATCH
+        StartComplaintWork:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/start
+            Method: PATCH
+        ResolveComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/resolve
+            Method: PATCH
+
+  SlaScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: CivicTrack-SLA-Checker
+      Description: Check unresolved CivicTrack complaints for approaching and breached 48-hour SLAs.
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ComplaintsFunction.Arn
+          Id: CivicTrackSlaCheckerTarget
+
+  SlaScheduleInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ComplaintsFunction.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SlaScheduleRule.Arn
+
+  CivicTrackPostConfirmationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CivicTrack-PostConfirmation-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AddConfirmedCitizensToCitizenGroup
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminAddUserToGroup
+                Resource: !Sub "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  CivicTrackPostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: CivicTrack-PostConfirmation
+      CodeUri: ../backend/post_confirmation/
+      Handler: app.lambda_handler
+      Role: !GetAtt CivicTrackPostConfirmationRole.Arn
+      Timeout: 10
+      MemorySize: 128
+
+  CivicTrackPostConfirmationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CivicTrackPostConfirmationFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt CivicTrackUserPool.Arn
+
+Outputs:
+  ApiUrl:
+    Description: CivicTrack API endpoint
+    Value: !Sub "https://${CivicTrackApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CivicTrackUserPool
+  UserPoolClientId:
+    Description: Cognito Web Client ID
+    Value: !Ref CivicTrackUserPoolClient
+  EvidenceBucketName:
+    Description: Private S3 bucket for complaint evidence and resolution photos
+    Value: !Ref EvidenceBucket
+  AllowedFrontendOrigin:
+    Description: Currently allowed browser origin
+    Value: !Ref AllowedOrigin
+  SesSenderEmail:
+    Description: SES sender address configured for CivicTrack notifications
+    Value: !Ref SesSenderEmail
+

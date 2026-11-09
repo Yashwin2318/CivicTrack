@@ -34,29 +34,41 @@ cd frontend && npm ci && npm run lint && npm test && npm run build
 
 ## 3. Deploy the backend (owner approval required)
 
+> **Untested commands.** SAM CLI was not installed on the development machine, so the two commands below have not been executed. They rely on SAM's defaults: run from `infrastructure/`, SAM reads `samconfig.toml` next to `template.yaml` and builds into `infrastructure/.aws-sam/` (git-ignored). `CodeUri: ../backend/...` resolves relative to the template.
+
 ```bash
-sam build --template-file infrastructure/template.yaml --build-dir .aws-sam/build
+cd infrastructure && sam build
 ```
 
 ```bash
-sam deploy --template-file .aws-sam/build/template.yaml --config-file infrastructure/samconfig.toml
+cd infrastructure && sam deploy
 ```
 
-`samconfig.toml` has `confirm_changeset = true`, so SAM prints the change set and waits. **Expected change set** — check that every row is `Modify` or `Add`, and that **no row shows `Replacement: True` or `Remove`** for the user pool, table or bucket:
+`samconfig.toml` has `confirm_changeset = true`, so SAM prints the change set and waits for **y/N**. Expected rows:
 
 | Resource | Action | Why |
 |---|---|---|
 | ComplaintsFunction | Modify | new code, new env var |
 | ComplaintsExecutionRole | Modify | `dynamodb:DeleteItem` removed |
-| EvidenceBucket | Modify | lifecycle rule added (no replacement) |
-| CivicTrackApi + new `AWS::ApiGateway::Deployment` | Modify / Add | six new routes |
-| ComplaintsFunction*Permission (×6) | Add | invoke permissions for new routes |
+| EvidenceBucket | Modify (Replacement: False) | lifecycle rule added |
+| CivicTrackApi | Modify | six new routes |
+| `CivicTrackApiDeployment<hash>` (new) | Add | SAM creates a new API deployment whenever routes change |
+| `CivicTrackApiDeployment<hash>` (old) | **Remove — expected** | the superseded deployment snapshot; the `dev` stage moves to the new one |
+| CivicTrackApidevStage | Modify | points at the new deployment |
+| ComplaintsFunction…Permission… (×6) | Add | invoke permissions for the new routes |
 
-If anything else appears (especially on `CivicTrackUserPool`, `ComplaintsTable`, `EvidenceBucket` replacement), answer **N** and investigate.
+**Stop and answer N** if any row shows `Remove` or `Replacement: True` for `CivicTrackUserPool`, `CivicTrackUserPoolClient`, the Cognito groups, `ComplaintsTable` or `EvidenceBucket`, or if any resource not listed above changes.
 
 **Compatibility:** existing records need no migration. `PENDING`+officer rows are read as `ASSIGNED`; the first action on an old row creates its `history` list.
 
-**Rollback:** the pre-change sources are archived in the session scratchpad (`original-snapshot/civictrack-original.tar`) — copy it into the repo before relying on it; also commit the current state to git first (the repository had no commits). To roll back, check out the previous `backend/complaints/app.py`, restore `template.yaml`, and `sam deploy` again. Data written by the new code (extra attributes) is ignored by the old code.
+**Rollback:** the code and template running in AWS before this work are kept in git:
+
+| File | Is |
+|---|---|
+| `backend/_archive/app_deployed_2026-11-02.py` | byte-identical to the deployed `CivicTrack-Complaints` code (verified against the SAM build that was deployed) |
+| `infrastructure/_archive/template_deployed_2026-11-02.yaml` | the template that produced the deployed stack (semantically identical to `aws cloudformation get-template`) |
+
+To roll back: copy the archived file over `backend/complaints/app.py` (and delete `backend/complaints/lifecycle.py` from the build, or leave it — the old code does not import it), copy the archived template over `infrastructure/template.yaml`, then `sam build` and `sam deploy`. Data written by the new code (extra attributes, `ASSIGNED`/`REOPENED`/`CLOSED` statuses) remains in the table; the old code ignores unknown attributes, but complaints in the new statuses would need a manual decision.
 
 ## 4. Smoke test after deploy
 
@@ -72,7 +84,7 @@ Then, signed in through the frontend: citizen submits with a pin and photo → a
 cd frontend && npm run build
 ```
 
-`frontend/.env.production` already points at the deployed API and user pool. The build output in `frontend/dist/` is static and can be hosted anywhere. Hosting on S3 + CloudFront would add new AWS resources (small cost) and is **not** included — decide the hosting target, then set the stack parameter `AllowedOrigin` to that exact origin (e.g. `https://civictrack.example.org`) and redeploy so API and S3 CORS stop accepting `*`.
+`.env` files are git-ignored, so a fresh clone has none. Before building, copy `frontend/.env.example` to `frontend/.env.production` and fill in the API URL, user pool ID and app client ID (the stack outputs `ApiUrl`, `UserPoolId`, `UserPoolClientId`), with `VITE_ENABLE_DEMO_AUTH=false`. Without it the build still succeeds but points at `http://127.0.0.1:3000` with no Cognito configuration. The build output in `frontend/dist/` is static and can be hosted anywhere. Hosting on S3 + CloudFront would add new AWS resources (small cost) and is **not** included — decide the hosting target, then set the stack parameter `AllowedOrigin` to that exact origin (e.g. `https://civictrack.example.org`) and redeploy so API and S3 CORS stop accepting `*`.
 
 ## 6. Recommended one-off changes (each needs approval)
 

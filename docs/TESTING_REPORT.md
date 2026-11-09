@@ -73,4 +73,5 @@ Using `backend/tools/local_dev_server.py` (real Lambda code, AWS mocked by moto 
 - `get_s3_client` local-mode branch and some Cognito pagination paths are not exercised (stubbed).
 - Leaflet map rendering is mocked in component tests and was checked manually.
 - No load or performance testing was performed; scan-cost growth is modelled, not measured.
-- No automated accessibility audit; keyboard focus, labels and contrast were reviewed manually only.
+- No accessibility audit was performed (automated or manual). Form fields have labels and dialogs have ARIA roles in code, but keyboard navigation, screen-reader behaviour and colour contrast have not been tested.
+- The SAM build/deploy commands in `DEPLOYMENT_GUIDE.md` have not been executed (SAM CLI not installed).

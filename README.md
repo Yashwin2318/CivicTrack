@@ -15,10 +15,10 @@ backend/.venv/Scripts/python backend/tools/local_dev_server.py --seed
 ```
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend && cp .env.example .env.local && npm install && npm run dev
 ```
 
-Open http://localhost:5173 and use the *Preview … Portal* buttons.
+Open http://localhost:5173 and use the *Preview … Portal* buttons. The example values point at the local API with demo login enabled; for a production build create `frontend/.env.production` from the same template with the stack outputs and `VITE_ENABLE_DEMO_AUTH=false` (see `DEPLOYMENT_GUIDE.md` §5).
 
 ## Tests
 
