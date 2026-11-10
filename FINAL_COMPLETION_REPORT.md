@@ -1,6 +1,6 @@
 # CivicTrack — Final Completion Report
 
-Date: 2026-11-10. Branch `master`, last commit `42ab30a`. All work since then is **uncommitted** in the working tree. **Update 2026-11-10 12:05 UTC: the backend was deployed** to `civictrack-dev` (change set `samcli-deploy1794310518`, `UPDATE_COMPLETE`, smoke checks passed; see `DEPLOYMENT_GUIDE.md` deployment record). The frontend is not yet rebuilt/hosted; nothing has been pushed to GitHub.
+Date: 2026-11-10. Branch `master`. The implementation is committed in `aad03b7` and the demonstration-ready changes in `fd1e762`; nothing is uncommitted. **Update 2026-11-10 12:05 UTC: the backend was deployed** to `civictrack-dev` (change set `samcli-deploy1794310518`, `UPDATE_COMPLETE`, smoke checks passed; see `DEPLOYMENT_GUIDE.md` deployment record). The frontend is not yet rebuilt/hosted; nothing has been pushed to GitHub.
 
 ## 1. Verification results (run 2026-11-10)
 

@@ -2,7 +2,7 @@
 
 Account `9862…` (masked), region **ap-south-1**, CloudFormation stack **`civictrack-dev`** (status `UPDATE_COMPLETE`, last updated 2026-11-02). Verified read-only on 2026-11-09 (not re-queried on 2026-11-10; no AWS call was made in later work). The last column lists the changes from both local iterations; **all of them were deployed on 2026-11-10** (stack `UPDATE_COMPLETE` 11:57 UTC). Every resource below is defined in `infrastructure/template.yaml`; no resource exists outside the stack except the SAM artifact bucket and the Lambda-created log groups.
 
-| Logical ID | Type | Physical name / identifier | Purpose | Change in this work (not deployed) |
+| Logical ID | Type | Physical name / identifier | Purpose | Change in this work (deployed 2026-11-10) |
 |---|---|---|---|---|
 | CivicTrackUserPool | Cognito User Pool | `CivicTrack-Users` · `ap-south-1_IfgVg8fLu` | Identities; email login; strong password policy | `DeletionPolicy`/`UpdateReplacePolicy: Retain` (metadata only) |
 | CivicTrackUserPoolClient | Cognito App Client | `CivicTrack-Web-Client` · `2k31829dp05hbdogg9qbuegvk` | Public SPA client (no secret) | none (recommend dropping `ALLOW_USER_PASSWORD_AUTH`) |
