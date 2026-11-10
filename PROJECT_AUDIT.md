@@ -77,3 +77,38 @@ Attributes: `title, category, location, description, photoKey, citizenSub, citiz
 2. **Departments** are derived from a fixed category → department map in code (these are CivicTrack's own categories, not geography).
 3. **Zones and wards** are admin-entered free-text fields on each complaint. No boundary polygons are hardcoded, because no verified boundary dataset was supplied.
 4. All infrastructure changes are written into `template.yaml` but **not deployed** (see `DEPLOYMENT_GUIDE.md`).
+
+---
+
+## 8. Second audit — platform-completion iteration (2026-11-09/10)
+
+Scope: the full spec for citizen, officer and admin portals, GIS, analytics, automation, notifications, backend engineering and security, reviewed against the code as it stood at commit `42ab30a`. Again **no AWS resource was modified**; the live stack still runs the code archived as `backend/_archive/app_deployed_2026-11-02.py`.
+
+### Gaps found and how they were closed (local, not deployed)
+
+| # | Gap at `42ab30a` | Resolution |
+|---|---|---|
+| G1 | No persistent reference data: departments were a hard-coded map; zones/wards were free text; no settings | New `CivicTrack-Config` table + `reference.py`; admin CRUD; built-in fallback |
+| G2 | No user/officer administration (Cognito console only) | Invite, role change, enable/disable via Cognito admin APIs, IAM-scoped to the pool; officer profiles |
+| G3 | Officers could not accept/decline or report progress; admins could not reject or escalate | New transitions with validation, history, audit and notifications; new `REJECTED` status |
+| G4 | No ward/zone boundaries or automatic location | GeoJSON import with validation; point-in-polygon on submission (no boundaries shipped) |
+| G5 | Analytics computed in the browser only; no median, rejected, priority, hotspots | `analytics_engine.py` + `/analytics`; browser fallback kept |
+| G6 | No duplicate detection, category suggestion or priority scoring | `intelligence.py` (rule-based, explainable) + `/complaints/similar` |
+| G7 | Citizen list scanned the whole table; no pagination | `citizenSub-createdAt` GSI with scan fallback; `limit`/`nextToken` |
+| G8 | No abuse protection | Per-citizen hourly cap; API Gateway throttling; 1 MB body cap |
+| G9 | No password reset, profile editing or idle sign-out | Added in `Login.jsx`, citizen profile, `AuthProvider` |
+| G10 | Notification bell had no persisted data | `/notifications` derived from history; per-browser read marker |
+| G11 | Error responses had no machine-readable code; logs were unstructured | `{error, code}` everywhere; JSON log lines with request ID |
+| G12 | Data resources could be deleted by a stack mistake | `DeletionPolicy/UpdateReplacePolicy: Retain` on user pool, both tables, bucket |
+| G13 | Login fields were not associated with labels; dialogs did not take focus | `htmlFor`/`id`, auto-focus, Escape to close |
+
+### Defects found while implementing (all fixed and covered by tests)
+
+Decimal detection broken on Python 3.12+ (`int.is_integer`), reserved word `zone` in a projection, assignment ranking ignoring legacy department names, clock-dependent component tests. Details: `docs/TESTING_REPORT.md`.
+
+### Remaining risks (see `FINAL_COMPLETION_REPORT.md` for the full list)
+
+- Full-table scans remain on admin lists, SLA sweep, analytics, admin feed and duplicate checks — acceptable at current volume, dominant cost at city scale.
+- Nothing from this iteration has run on AWS; API Gateway authorizer behaviour, IAM scoping and SES delivery are verified only after deployment.
+- No official boundary data; ward/zone analytics depend on the owner importing it.
+- Original findings F5–F8 (CORS `*`, log retention, PITR, SES sandbox) still need owner action.

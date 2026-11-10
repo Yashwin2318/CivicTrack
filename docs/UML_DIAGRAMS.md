@@ -1,6 +1,6 @@
 # CivicTrack UML & Architecture Diagrams
 
-All diagrams are Mermaid (render on GitHub, VS Code, or mermaid.live) and reflect the code as of 2026-11-09. Names match identifiers in `backend/complaints/app.py`, `lifecycle.py` and `frontend/src`.
+Mermaid diagrams (render on GitHub, VS Code or mermaid.live), reflecting the code on 2026-11-10. Identifiers match `backend/complaints/*.py`, `infrastructure/template.yaml` and `frontend/src`. The ER/data-model diagram is in `DATABASE_SCHEMA.md`.
 
 ## 1. Use case diagram
 
@@ -9,79 +9,101 @@ flowchart LR
   Citizen((Citizen))
   Officer((Field Officer))
   Admin((Administrator))
-  Sched((EventBridge<br/>scheduler))
+  Sched((EventBridge<br/>15-min schedule))
   subgraph CivicTrack
-    UC1([Register / sign in])
-    UC2([Report complaint with location & photo])
-    UC3([Track complaint & view timeline])
-    UC4([View resolution proof])
-    UC5([Reopen or close resolved complaint])
-    UC6([Assign / reassign / unassign officer])
-    UC7([Set priority, department, zone, ward])
-    UC8([View map, analytics, export CSV])
-    UC9([View officer workload])
-    UC10([Start work, before photo])
-    UC11([Resolve with proof photo])
-    UC12([Plan visit order, get directions])
-    UC13([Check SLA, warn, escalate])
-    UC14([Send email notification])
+    C1([Register · verify · sign in · reset password])
+    C2([Edit profile · change password])
+    C3([Report complaint: category, urgency, GPS/map pin, photo])
+    C4([See duplicate warning & category suggestion])
+    C5([Track: timeline, SLA, progress, proof photos])
+    C6([Close with rating/feedback or reopen])
+    O1([Accept or decline assignment])
+    O2([Start work · progress update · resolve with proof])
+    O3([Field map · directions · visit order])
+    A1([Triage: classify, assign/reassign/unassign])
+    A2([Reject or escalate complaint])
+    A3([Manage departments & category routing])
+    A4([Manage zones & wards · import GeoJSON])
+    A5([Invite staff · change roles · enable/disable])
+    A6([Officer profiles: department, areas, availability])
+    A7([Analytics, reports, CSV/PDF export])
+    A8([Settings · audit log])
+    S1([SLA warning · breach escalation · level-2 escalation])
+    N([Email + notification centre])
   end
-  Citizen --- UC1 & UC2 & UC3 & UC4 & UC5
-  Admin --- UC1 & UC6 & UC7 & UC8 & UC9 & UC4
-  Officer --- UC1 & UC10 & UC11 & UC12
-  Sched --- UC13
-  UC2 -.include.-> UC14
-  UC6 -.include.-> UC14
-  UC11 -.include.-> UC14
-  UC13 -.include.-> UC14
+  Citizen --- C1 & C2 & C3 & C4 & C5 & C6
+  Officer --- C1 & O1 & O2 & O3
+  Admin --- C1 & A1 & A2 & A3 & A4 & A5 & A6 & A7 & A8
+  Sched --- S1
+  C3 -.include.-> C4
+  C3 & A1 & O1 & O2 & C6 & A2 & S1 -.include.-> N
 ```
 
-## 2. Class diagram (domain + backend modules)
+## 2. Class diagram (domain and backend modules)
 
 ```mermaid
 classDiagram
   class Complaint {
     +String complaintId
-    +String title
-    +String category
-    +String location
-    +String description
-    +Decimal latitude
-    +Decimal longitude
+    +String title, category, location, description, summary
+    +Decimal latitude, longitude
     +String status
     +String priority
-    +String department
-    +String zone
-    +String ward
-    +String citizenSub
-    +String assignedOfficerSub
-    +String createdAt
-    +String slaStartedAt
-    +int slaHours
+    +int priorityScore
+    +String departmentId, wardId, zoneId
+    +String citizenSub, assignedOfficerSub
+    +String createdAt, slaStartedAt, acceptedAt
+    +int slaHours, reopenCount, percentComplete, escalationLevel
     +bool escalated
-    +int reopenCount
     +HistoryEntry[] history
-    +NotificationStatus lastCitizenNotification
   }
   class HistoryEntry {
+    +String at, action, actorRole, actorSub
+    +String fromStatus, toStatus, note
+  }
+  class Department {
+    +String id
+    +String name
+    +String description
+    +bool active
+  }
+  class Category {
+    +String name
+    +String departmentId
+    +bool active
+  }
+  class Zone {
+    +String id
+    +String name
+    +Geometry boundary
+  }
+  class Ward {
+    +String id
+    +String name
+    +String number
+    +String zoneId
+    +Geometry boundary
+  }
+  class OfficerProfile {
+    +String departmentId
+    +String[] zoneIds
+    +String[] wardIds
+    +bool available
+    +int maxActive
+  }
+  class Settings {
+    +int slaHours
+    +int warningHours
+    +int maxComplaintsPerHour
+    +bool discloseOfficerName
+  }
+  class AuditEntry {
     +String at
-    +String action
-    +String actorRole
     +String actorSub
-    +String fromStatus
-    +String toStatus
-    +String note
-  }
-  class User {
-    +String sub
-    +String email
-    +Role role
-  }
-  class Role {
-    <<enumeration>>
-    Citizen
-    Officer
-    Admin
+    +String actorRole
+    +String action
+    +String target
+    +String details
   }
   class Status {
     <<enumeration>>
@@ -91,67 +113,100 @@ classDiagram
     RESOLVED
     REOPENED
     CLOSED
+    REJECTED
   }
   class lifecycle {
     <<module>>
-    +effective_status(item) Status
-    +can_transition(action, status) bool
-    +department_for(item) String
-    +sla_state(item, now, warning_hours) dict
-    +parse_iso_datetime(value) datetime
+    +effective_status(item)
+    +can_transition(action, status)
+    +sla_state(item, now, warning_hours)
+    +department_for(item)
+  }
+  class intelligence {
+    <<module>>
+    +suggest_category(title, description)
+    +score_priority(category, title, description, nearby_open, urgency)
+    +summarize(title, description)
+  }
+  class geo {
+    <<module>>
+    +validate_geometry(geometry)
+    +point_in_geometry(lng, lat, geometry, bbox)
+    +locate(lng, lat, areas)
+    +grid_hotspots(points)
+  }
+  class analytics_engine {
+    <<module>>
+    +aggregate(items, now, filters, granularity, warning_hours)
+  }
+  class reference {
+    <<module>>
+    +load(table)
+    +route_category(ref, category)
+    +write_audit(table, user, action, target, details)
   }
   class app {
-    <<module>>
+    <<Lambda handler>>
     +lambda_handler(event, context)
-    +authenticate_request(event) User
-    +create_complaint(event, user)
-    +get_complaints(user)
-    +assign_complaint(event, user, id)
-    +unassign_complaint(event, user, id)
-    +update_officer_workflow(event, user, id, action)
-    +reopen_complaint(event, user, id)
-    +close_complaint(event, user, id)
-    +apply_transition(table, item, fields, entry)
+    +authenticate_request(event)
+    +create_complaint / check_similar / get_complaints
+    +assign / unassign / reject / escalate
+    +update_officer_workflow(action)
+    +reopen / close
+    +admin handlers (users, reference, boundaries, settings, audit)
+    +get_analytics / get_notifications / get_me
     +process_sla_checks(now)
-    +send_notification(recipients, subject, body)
   }
   Complaint "1" *-- "0..200" HistoryEntry
   Complaint --> Status
-  User --> Role
-  User "1" --> "0..*" Complaint : reports (Citizen)
-  User "1" --> "0..*" Complaint : handles (Officer)
-  app ..> lifecycle : uses
-  app ..> Complaint : persists
+  Complaint --> Department
+  Complaint --> Ward
+  Complaint --> Zone
+  Category --> Department
+  Ward --> Zone
+  OfficerProfile --> Department
+  app ..> lifecycle
+  app ..> intelligence
+  app ..> geo
+  app ..> analytics_engine
+  app ..> reference
+  analytics_engine ..> geo
+  reference ..> Department
+  reference ..> Settings
+  reference ..> AuditEntry
 ```
 
-## 3. Sequence — citizen submits a complaint with photo
+## 3. Sequence — citizen submits a complaint
 
 ```mermaid
 sequenceDiagram
   actor C as Citizen
   participant SPA as React SPA
-  participant GW as API Gateway
-  participant L as Lambda
+  participant L as Lambda (via API Gateway)
   participant S3
   participant DB as DynamoDB
+  participant CFG as Config table
   participant SES
   C->>SPA: fill form, pin location, choose photo
   SPA->>SPA: validateComplaintForm()
-  SPA->>GW: POST /evidence/upload-url (JWT)
-  GW->>L: claims
-  L-->>SPA: uploadUrl, photoKey (300 s)
-  SPA->>S3: PUT photo (presigned)
-  SPA->>GW: POST /complaints {…, photoKey, clientRequestId}
-  GW->>L: claims
-  L->>S3: HeadObject(photoKey) — type & size
-  L->>DB: PutItem (attribute_not_exists)
+  SPA->>L: POST /complaints/similar
+  L->>DB: scan open items with coordinates
+  L-->>SPA: duplicates (distance/status only), category suggestion
+  SPA-->>C: warning panel (submit anyway / change category)
+  SPA->>L: POST /evidence/upload-url
+  L-->>SPA: presigned PUT (300 s)
+  SPA->>S3: PUT photo
+  SPA->>L: POST /complaints {…, photoKey, clientRequestId}
+  L->>CFG: load reference (cached 60 s)
+  L->>DB: GetItem(idempotency) · Query GSI (hourly rate limit)
+  L->>S3: HeadObject (type, size)
+  L->>L: triage: route department, score priority, locate ward/zone
+  L->>DB: PutItem IF attribute_not_exists
   L->>SES: citizen + admin emails
-  L->>DB: SET lastCitizenNotification
-  L-->>SPA: 201 complaint
-  SPA-->>C: toast with tracking ID
+  L-->>SPA: 201 complaint (tracking ID)
 ```
 
-## 4. Sequence — assignment, work and resolution
+## 4. Sequence — assignment and field work
 
 ```mermaid
 sequenceDiagram
@@ -163,16 +218,14 @@ sequenceDiagram
   participant S3
   A->>L: GET /officers
   L->>COG: ListUsersInGroup(Officer)
-  L-->>A: directory
+  L-->>A: directory + profiles (ranked in UI)
   A->>L: PATCH /complaints/{id}/assign {officerSub}
-  L->>COG: verify enabled Officer member
-  L->>DB: GetItem → check transition
-  L->>DB: UpdateItem IF status & officer unchanged (+history)
-  L-->>A: 200 ASSIGNED
-  O->>L: PATCH /start {note, beforePhotoKey?}
-  L->>DB: conditional update → IN_PROGRESS
+  L->>COG: verify enabled Officer
+  L->>DB: conditional update → ASSIGNED (+history, audit)
+  O->>L: PATCH /accept (or /decline with reason → PENDING)
+  O->>L: PATCH /start {beforePhotoKey?}
+  O->>L: PATCH /progress {note, percentComplete, photoKey?}
   O->>L: POST /proof-upload-url {stage: after}
-  L-->>O: presigned PUT
   O->>S3: PUT proof photo
   O->>L: PATCH /resolve {proofPhotoKey, note}
   L->>S3: HeadObject
@@ -184,27 +237,30 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant EB as EventBridge (15 min)
+  participant EB as EventBridge
   participant L as Lambda
   participant DB as DynamoDB
   participant SES
-  EB->>L: Scheduled Event
-  L->>DB: Scan status IN (open statuses)
-  loop each complaint
-    alt past deadline
+  EB->>L: Scheduled Event (every 15 min)
+  L->>DB: Scan status IN (PENDING, ASSIGNED, IN_PROGRESS, REOPENED)
+  loop each complaint (errors isolated per record)
+    alt deadline passed
       L->>DB: SET escalated IF not escalated (+history)
-      L->>DB: SET escalationNotifiedAt IF not exists (claim)
-    else in warning window
-      L->>DB: SET slaWarningSentAt IF not exists (claim)
+      alt breach not yet notified
+        L->>DB: claim escalationNotifiedAt IF not exists
+      else 24 h past deadline
+        L->>DB: claim escalationLevel2NotifiedAt IF not exists
+      end
+    else inside warning window
+      L->>DB: claim slaWarningSentAt IF not exists
     end
     opt claim won
-      L->>SES: email officer + admin
+      L->>SES: email
       alt send failed
-        L->>DB: REMOVE flag IF flag = our stamp (retry next run)
+        L->>DB: REMOVE flag IF flag = our stamp
       end
     end
   end
-  L-->>EB: summary {scanned, warningsSent, newEscalations, errors}
 ```
 
 ## 6. Activity diagram — complaint lifecycle
@@ -212,108 +268,119 @@ sequenceDiagram
 ```mermaid
 flowchart TD
   S([Citizen submits]) --> P[PENDING]
-  P --> A{Admin assigns?}
-  A -- yes --> AS[ASSIGNED]
-  AS -- reassign --> AS
-  AS -- unassign --> P
-  AS --> ST[Officer starts work<br/>optional before photo]
-  ST --> IP[IN_PROGRESS]
-  IP --> PR[Upload after photo] --> R[RESOLVED]
-  R --> Q{Citizen satisfied?}
-  Q -- yes --> CL[CLOSED]
-  Q -- no, reason --> RO[REOPENED<br/>new SLA period]
-  RO --> A2{Same officer?}
-  A2 -- restart --> IP
-  A2 -- reassign --> AS
-  R -. admin verifies .-> CL
-  P & AS & IP & RO -. every 15 min .-> SLA{SLA check}
-  SLA -- final 4 h --> W[Warning email once]
-  SLA -- past 48 h --> E[Escalate + email once]
+  P -- admin rejects with reason --> RJ[REJECTED]
+  P -- admin assigns --> AS[ASSIGNED]
+  AS -- reassign before work --> AS
+  AS -- admin unassigns --> P
+  AS -- officer declines with reason --> P
+  AS -- admin rejects --> RJ
+  AS -- officer accepts --> AS
+  AS -- officer starts --> IP[IN_PROGRESS]
+  IP -- progress update --> IP
+  IP -- proof photo + resolve --> R[RESOLVED]
+  R -- citizen confirms or admin closes --> CL[CLOSED]
+  R -- citizen reopens within 14 days, max 3 --> RO[REOPENED<br/>new SLA period]
+  RO -- assigned officer restarts --> IP
+  RO -- admin reassigns --> AS
+  RO -- admin rejects --> RJ
+  P & AS & IP & RO -. every 15 min .-> SLA{SLA}
+  SLA -- warning window --> W[warning email once]
+  SLA -- past deadline --> E[escalate + email once]
+  SLA -- 24 h past deadline --> E2[level-2 email once]
 ```
 
 ## 7. Deployment diagram
 
 ```mermaid
 flowchart TB
-  subgraph Client["Client devices"]
-    BR[Browser: React 19 SPA<br/>static build]
+  subgraph Client["Browser"]
+    SPA[React 19 SPA<br/>static build]
   end
-  subgraph AWS["AWS ap-south-1 — stack civictrack-dev"]
-    COG[Cognito User Pool<br/>CivicTrack-Users]
-    APIGW[API Gateway REST<br/>CivicTrack-API / dev]
-    subgraph Lambda
-      LC[CivicTrack-Complaints<br/>python3.14 · 512 MB]
-      LP[CivicTrack-PostConfirmation<br/>128 MB]
-    end
-    EB[EventBridge rule<br/>CivicTrack-SLA-Checker]
-    DDB[(DynamoDB<br/>CivicTrack-Complaints)]
-    S3[(S3 evidence bucket)]
+  subgraph AWS["AWS ap-south-1 · stack civictrack-dev"]
+    COG[Cognito user pool<br/>Citizen / Officer / Admin]
+    APIGW[API Gateway REST /dev<br/>Cognito authorizer · 25 rps throttle]
+    LC[Lambda CivicTrack-Complaints<br/>python3.14 · 512 MB]
+    LP[Lambda CivicTrack-PostConfirmation]
+    EB[EventBridge CivicTrack-SLA-Checker]
+    DDB[(DynamoDB CivicTrack-Complaints<br/>+ citizenSub GSI)]
+    CFG[(DynamoDB CivicTrack-Config)]
+    S3[(S3 evidence bucket, private)]
     SES[SES]
     CW[CloudWatch Logs]
   end
-  OSM[OpenStreetMap tile servers]
-  BR --> COG
-  BR --> APIGW --> LC
-  BR --> S3
-  BR --> OSM
+  OSM[OpenStreetMap tiles + Nominatim]
+  SPA --> COG
+  SPA --> APIGW --> LC
+  SPA -- presigned URLs --> S3
+  SPA --> OSM
   COG --> LP
   EB --> LC
-  LC --> DDB & S3 & SES & COG & CW
+  LC --> DDB & CFG & S3 & SES & COG & CW
 ```
+
+The config table, citizen GSI, new routes and throttling are defined in `infrastructure/template.yaml` but **not yet deployed** (see `DEPLOYMENT_GUIDE.md` §3).
 
 ## 8. Component diagram (frontend)
 
 ```mermaid
 flowchart TB
-  main[main.jsx] --> AP[AuthProvider] --> App[App.jsx / PortalRouter]
-  App --> FB[FeedbackProvider<br/>toasts + confirm]
-  App --> Login
+  main[main.jsx] --> AP[AuthProvider<br/>session + idle sign-out] --> App[App.jsx / PortalRouter]
+  App --> FB[FeedbackProvider: toasts, confirm]
+  App --> Login[Login: sign in, register, verify, reset]
   App -. lazy .-> CP[CitizenPortal]
   App -. lazy .-> OD[OfficerDashboard]
   App -. lazy .-> AD[AdminDashboard]
-  CP & OD & AD --> Shell[PortalShell]
-  CP & OD & AD --> Det[ComplaintDetail]
-  CP & OD & AD --> CC[complaints.jsx<br/>useComplaints, FilterBar, ComplaintTable]
-  AD & OD --> Map[ComplaintMap<br/>react-leaflet]
-  AD --> Charts
-  CC & Det --> API[lib/api.js]
-  CC --> LC[lib/lifecycle.js]
-  AD --> AN[lib/analytics.js]
-  OD & Det --> GEO[lib/geo.js]
+  AD --> AV[AnalyticsView]
+  AD --> MV[ManagementViews: departments, areas, officers, users, settings, audit]
+  CP & OD & AD --> Shell[PortalShell + notification centre]
+  CP & OD & AD --> Det[ComplaintDetail drawer]
+  CP & OD & AD --> Map[ComplaintMap · LocationPicker · PlaceSearch]
+  CP & OD & AD --> Data[data.js: useReference, useNotifications]
+  CP & OD & AD --> CC[complaints.jsx: useComplaints, FilterBar, tables]
+  Data & CC & Det --> API[lib/api.js]
+  AD --> ASG[lib/assignment.js rankOfficers]
+  AV --> AN[lib/analytics.js]
   CP --> VAL[lib/validation.js]
+  Map --> GEO[lib/geo.js]
 ```
 
 ## 9. Data flow diagrams
 
-### Level 0 (context)
+### Level 0
 
 ```mermaid
 flowchart LR
   Citizen -- complaint, photo, feedback --> CT((CivicTrack))
   CT -- status, proof, emails --> Citizen
-  Admin -- assignments, classification --> CT
-  CT -- dashboards, reports, alerts --> Admin
-  Officer -- progress, proof photos --> CT
+  Admin -- assignments, classification, configuration, users --> CT
+  CT -- dashboards, reports, audit, alerts --> Admin
+  Officer -- responses, progress, proof --> CT
   CT -- assignments, SLA alerts --> Officer
+  OSM[(OpenStreetMap)] -- tiles, geocoding --> CT
 ```
 
 ### Level 1
 
 ```mermaid
 flowchart LR
-  C[Citizen] -->|complaint data| P1((1 Register complaint))
-  C -->|photo| P2((2 Evidence storage))
-  P2 --> D2[(S3 evidence)]
-  P1 --> D1[(Complaints table)]
-  A[Admin] -->|officer, priority, area| P3((3 Triage & assign))
+  C[Citizen] -->|complaint| P1((1 Register & triage))
+  P1 <--> D1[(Complaints)]
+  P1 <--> D4[(Config: categories, wards, settings)]
+  C -->|photo| P2((2 Evidence))
+  P2 <--> D2[(S3)]
+  A[Admin] -->|assign, reject, escalate| P3((3 Triage & assign))
   P3 <--> D1
   P3 <-->|Officer group| D3[(Cognito)]
-  O[Officer] -->|start / resolve| P4((4 Field work))
+  A -->|departments, areas, GeoJSON, users, settings| P8((8 Administration))
+  P8 <--> D4
+  P8 <--> D3
+  O[Officer] -->|accept, progress, resolve| P4((4 Field work))
   P4 <--> D1
-  O -->|proof| P2
+  O -->|photos| P2
   P5((5 SLA monitoring)) <--> D1
   P1 & P3 & P4 & P5 -->|events| P6((6 Notify))
   P6 -->|email| C & O & A
-  D1 --> P7((7 Analytics & export))
-  P7 -->|charts, CSV| A
+  D1 --> P7((7 Analytics & notification feed))
+  P7 -->|charts, CSV, feed| A & C & O
+  P3 & P8 -->|audit| D4
 ```

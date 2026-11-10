@@ -19,12 +19,13 @@ IN_PROGRESS = "IN_PROGRESS"
 RESOLVED = "RESOLVED"
 REOPENED = "REOPENED"
 CLOSED = "CLOSED"
+REJECTED = "REJECTED"
 
-ALL_STATUSES = (PENDING, ASSIGNED, IN_PROGRESS, RESOLVED, REOPENED, CLOSED)
+ALL_STATUSES = (PENDING, ASSIGNED, IN_PROGRESS, RESOLVED, REOPENED, CLOSED, REJECTED)
 
 # Statuses for which the SLA clock is running.
 OPEN_STATUSES = frozenset({PENDING, ASSIGNED, IN_PROGRESS, REOPENED})
-FINAL_STATUSES = frozenset({RESOLVED, CLOSED})
+FINAL_STATUSES = frozenset({RESOLVED, CLOSED, REJECTED})
 
 # action -> (allowed effective statuses before, status after)
 TRANSITIONS = {
@@ -35,6 +36,13 @@ TRANSITIONS = {
     "resolve": (frozenset({IN_PROGRESS}), RESOLVED),
     "reopen": (frozenset({RESOLVED}), REOPENED),
     "close": (frozenset({RESOLVED}), CLOSED),
+    # Officer responses to an assignment (status unchanged on accept).
+    "accept": (frozenset({ASSIGNED, REOPENED}), None),
+    "decline": (frozenset({ASSIGNED}), PENDING),
+    "progress": (frozenset({IN_PROGRESS}), None),
+    # Administrative decisions.
+    "reject": (frozenset({PENDING, ASSIGNED, REOPENED}), REJECTED),
+    "escalate": (OPEN_STATUSES, None),
 }
 
 PRIORITIES = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
@@ -66,8 +74,10 @@ def can_transition(action, current_status):
     return bool(rule) and current_status in rule[0]
 
 
-def next_status(action):
-    return TRANSITIONS[action][1]
+def next_status(action, current=None):
+    """Status after ``action``; actions that do not change status return ``current``."""
+    target = TRANSITIONS[action][1]
+    return current if target is None else target
 
 
 def department_for(item):
@@ -114,7 +124,8 @@ def sla_clock_start(item):
 def sla_state(item, now, warning_hours=4):
     """Describe the SLA position of a complaint at ``now`` (aware datetime).
 
-    state is one of: unknown, on_track, warning, breached, met, missed.
+    state is one of: unknown, on_track, warning, breached, met, missed,
+    not_applicable (rejected complaints).
     """
     start = sla_clock_start(item)
     if not start:
@@ -125,6 +136,8 @@ def sla_state(item, now, warning_hours=4):
     warning_at = deadline - timedelta(hours=max(0, min(warning_hours, hours)))
     status = effective_status(item)
 
+    if status == REJECTED:
+        return {"state": "not_applicable", "deadline": deadline.isoformat(), "warningAt": warning_at.isoformat(), "hours": hours}
     if status in FINAL_STATUSES:
         finished = parse_iso_datetime(item.get("resolvedAt")) or parse_iso_datetime(
             item.get("closedAt")

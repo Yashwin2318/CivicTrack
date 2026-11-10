@@ -1,70 +1,73 @@
 # CivicTrack — Architecture Overview
 
+Updated 2026-11-10. Diagrams: `docs/UML_DIAGRAMS.md`; data model: `docs/DATABASE_SCHEMA.md`; endpoints: `docs/API_DOCUMENTATION.md`.
+
 ## System context
 
 ```mermaid
 flowchart LR
-  C[Citizen browser] -->|HTTPS + Cognito ID token| APIGW
-  A[Admin browser] -->|HTTPS + Cognito ID token| APIGW
-  O[Officer browser] -->|HTTPS + Cognito ID token| APIGW
-  C & A & O -->|SRP sign-in| COG[(Cognito User Pool<br/>Citizen / Officer / Admin groups)]
-  COG -->|PostConfirmation| PC[Lambda CivicTrack-PostConfirmation]
-  APIGW[API Gateway REST<br/>CivicTrack-API /dev<br/>Cognito authorizer] --> L[Lambda CivicTrack-Complaints<br/>Python 3.14]
-  EB[EventBridge rule<br/>CivicTrack-SLA-Checker<br/>rate 15 min] --> L
-  L --> DDB[(DynamoDB<br/>CivicTrack-Complaints)]
-  L -->|presign PUT / GET, HeadObject| S3[(S3 evidence bucket<br/>private, SSE)]
+  C[Citizen] & O[Officer] & A[Admin] -->|HTTPS + Cognito ID token| APIGW
+  C & O & A -->|SRP sign-in, password reset| COG[(Cognito user pool)]
+  COG -->|PostConfirmation| PC[Lambda PostConfirmation]
+  APIGW[API Gateway REST /dev<br/>Cognito authorizer, throttling] --> L[Lambda CivicTrack-Complaints]
+  EB[EventBridge rate 15 min] --> L
+  L --> DDB[(CivicTrack-Complaints<br/>+ citizenSub GSI)]
+  L --> CFG[(CivicTrack-Config)]
+  L -->|presign, HeadObject| S3[(Evidence bucket)]
   C & O -->|presigned PUT/GET| S3
-  L --> SES[SES email]
-  L -->|ListUsersInGroup| COG
-  L --> CW[CloudWatch Logs]
-  C & A & O -->|map tiles| OSM[OpenStreetMap tiles<br/>free, attribution]
+  L --> SES[SES] & CW[CloudWatch Logs]
+  L -->|groups, user admin| COG
+  C & O & A -->|tiles, place search| OSM[OpenStreetMap]
 ```
 
-## Components
+## Backend modules (`backend/complaints/`)
 
-| Component | Responsibility |
-|---|---|
-| `frontend/` (React 19 + Vite 8) | Three role portals selected by the user's Cognito group: `CitizenPortal`, `AdminDashboard`, `OfficerDashboard`. Shared components for complaint detail, timeline, map, toasts, confirm dialog. Role checks in the UI are cosmetic; the backend is authoritative. |
-| `backend/complaints/app.py` | Single Lambda: HTTP router, authentication context, role authorization, validation, complaint lifecycle state machine, S3 presigning, SES notifications, SLA sweep. |
-| `backend/complaints/lifecycle.py` | Pure state-machine module (no AWS imports): statuses, allowed transitions, legacy status normalisation, department map, SLA computation. Unit-testable. |
-| `backend/post_confirmation/app.py` | Adds confirmed self sign-ups to `Citizen`. |
-| DynamoDB `CivicTrack-Complaints` | One item per complaint, including an append-only `history` list for audit. |
-| S3 evidence bucket | `citizens/{sub}/complaint-evidence/*` and `officers/{sub}/complaints/{id}/proof/*`. Never public; access only via short-lived presigned URLs. |
-| EventBridge | Invokes the same Lambda every 15 minutes with a scheduled event → `process_sla_checks()`. |
+| Module | Responsibility | AWS calls |
+|---|---|---|
+| `app.py` | Router, authentication, role checks, validation, handlers, notifications, SLA sweep, audit | DynamoDB, S3, SES, Cognito |
+| `lifecycle.py` | Statuses, transitions, legacy mapping, SLA state | none |
+| `intelligence.py` | Rule-based category suggestion, priority score with reasons, extractive summary | none |
+| `geo.py` | GeoJSON validation, point-in-polygon, haversine, hotspots | none |
+| `analytics_engine.py` | Server-side aggregation | none |
+| `reference.py` | Config-table access (departments, categories, zones, wards, officer profiles, settings, audit), 60 s cache, built-in fallback | DynamoDB (passed in) |
+
+Pure modules have no AWS imports, so they are unit-tested directly.
+
+## Frontend (`frontend/src/`)
+
+React 19 + Vite. Portals are lazy-loaded per role. Shared pieces: `PortalShell` (navigation, notification centre), `ComplaintDetail`, `ComplaintMap` (Leaflet + OSM), `complaints.jsx` (data hook, filters, tables), `data.js` (reference data and notifications with offline fallbacks), `lib/` (API client, lifecycle mirror, analytics, geo, validation, assignment ranking). Role-based UI is cosmetic; the backend authorizes every call.
 
 ## Complaint lifecycle
 
-```mermaid
-stateDiagram-v2
-  [*] --> PENDING: citizen submits
-  PENDING --> ASSIGNED: admin assigns officer
-  ASSIGNED --> ASSIGNED: admin reassigns
-  ASSIGNED --> PENDING: admin unassigns
-  ASSIGNED --> IN_PROGRESS: officer starts work
-  REOPENED --> ASSIGNED: admin (re)assigns
-  REOPENED --> IN_PROGRESS: assigned officer restarts
-  IN_PROGRESS --> RESOLVED: officer uploads proof + resolves
-  RESOLVED --> REOPENED: citizen reopens (with reason)
-  RESOLVED --> CLOSED: citizen confirms / admin closes
-  CLOSED --> [*]
-```
+Statuses: `PENDING → ASSIGNED → IN_PROGRESS → RESOLVED → CLOSED`, with `REOPENED` (citizen, ≤14 days, ≤3 times) and `REJECTED` (admin, final). Officers may accept or decline assignments and post progress updates. Admins may assign, reassign (before work), unassign, reject and escalate. Every transition:
 
-Legacy rows: `PENDING` with a non-empty `assignedOfficerSub` is treated as `ASSIGNED` everywhere (API responses expose both `status` as stored and `effectiveStatus`). Every transition is executed as a DynamoDB conditional update whose condition repeats the expected prior state, so concurrent or duplicated requests fail with `409` instead of corrupting state.
+1. reads the item consistently;
+2. checks the transition table (`lifecycle.TRANSITIONS`);
+3. writes with a condition that status and officer are unchanged since the read (optimistic concurrency → 409 on conflicts);
+4. appends to the item's `history` (≤200 entries).
+
+Legacy rows (`PENDING` + officer) are treated as `ASSIGNED`, so no migration is needed.
+
+## Triage on submission
+
+Category → department routing (config table, built-in fallback) → nearby open complaints of the same category within 200 m → priority score 0–100 from category base, risk keywords, nearby count and citizen urgency (reasons stored) → ward/zone by point-in-polygon against **imported** boundaries → extractive summary. All of this is deterministic and rule-based; no ML model or external AI service is used.
 
 ## SLA automation
 
-- Deadline = `createdAt + slaHours` (default 48 h). Warning window = final `SLA_WARNING_HOURS` (default 4 h).
-- Sweep considers complaints whose effective status is not `RESOLVED`/`CLOSED`.
-- **Claim-then-send**: the flag (`slaWarningSentAt` / `escalationNotifiedAt`) is set with a conditional write *before* sending. Only the invocation that wins the claim sends. If SES fails, the claim is released so the next run retries. This makes EventBridge duplicate delivery, Lambda retries and overlapping invocations safe.
-- Officer email lookups are cached per sweep and only performed when a notification is actually due.
-- All timestamps are stored as ISO-8601 UTC; naive timestamps are interpreted as UTC; unparseable timestamps are skipped and counted in the sweep summary.
+Deadline = `slaStartedAt` (reopen) or `createdAt` + `slaHours` (from settings at creation, default 48). One notification per run per complaint, each guarded by a claim flag set with a conditional write **before** sending, and released if sending fails:
 
-## Security model
+| Stage | Flag | Recipients |
+|---|---|---|
+| Warning (final `warningHours`, default 4) | `slaWarningSentAt` | officer + admins |
+| Breach (`escalated = true` + history) | `escalationNotifiedAt` | officer + admins |
+| Level 2 (24 h after deadline) | `escalationLevel2NotifiedAt` | admins |
 
-- Authentication: Cognito JWT validated by API Gateway; the Lambda reads only verified claims.
-- Authorization (backend): Citizen → own complaints only; Officer → only complaints where `assignedOfficerSub == sub`; Admin → all. Enforced in list filters and re-checked on every single-item read and write.
-- Evidence: private bucket; upload keys are generated server-side under the caller's prefix; images are verified (`HeadObject`: type allow-list, ≤10 MB) before being attached; view URLs expire after 300 s and are issued only to users allowed to see the complaint.
+Safe under EventBridge duplicate delivery, Lambda retries and overlapping runs; per-record errors never abort the sweep.
 
-## Cost posture
+## Security model (summary)
 
-Fully serverless, pay-per-request: no EC2, NAT, or always-on resources. Maps use free OpenStreetMap tiles via Leaflet (no paid map API). See `AWS_BUDGET_AUDIT.md`.
+Cognito JWT validated by API Gateway; role from `cognito:groups` only. Citizens see only their own complaints (404 for others); officers only assigned ones (403); admin routes call `require_admin`. Evidence keys are server-generated per user and verified with `HeadObject`; URLs expire in 300 s. Cognito admin actions are IAM-scoped to this user pool. Details: `docs/SECURITY_ARCHITECTURE.md`.
+
+## Data and cost posture
+
+Two on-demand DynamoDB tables, one private S3 bucket, no always-on compute. Full-table scans (admin lists, SLA sweep, analytics, admin feed, duplicate checks) are the dominant cost driver at scale; mitigations are listed in `AWS_COST_ESTIMATE.md`. Maps use free OpenStreetMap services under their usage policies.

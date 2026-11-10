@@ -1,5 +1,29 @@
 # CivicTrack — Implementation Roadmap
 
+## Status (2026-11-10)
+
+| Phase | Status |
+|---|---|
+| 1. Backend correctness & security | ✅ done (commit `a35eb60`) |
+| 2. Backend test suite | ✅ done; extended to 221 tests |
+| 3. Frontend portals | ✅ done; extended in the platform-completion iteration |
+| 4. Frontend tests | ✅ done; 65 tests |
+| 5. Infrastructure (template) | ✅ written, ⛔ **not deployed** (owner approval) |
+| 6. Documentation | ✅ done |
+| 7. Platform completion: reference data, user admin, officer responses, reject/escalate, GIS boundaries, server analytics, rule-based intelligence, notification centre, password reset, rate limiting | ✅ done locally (uncommitted at time of writing) |
+| 8. Deployment, boundary data, SES production access, log retention, PITR | ⛔ pending owner decisions |
+
+### Next phases (proposed)
+
+| Phase | Work | Needs |
+|---|---|---|
+| 9 | Deploy and smoke-test on AWS (`DEPLOYMENT_GUIDE.md` §3–4) | approval |
+| 10 | Import official ward/zone GeoJSON with licence | dataset from owner |
+| 11 | Scale work: UI pagination for admin lists, sparse GSI for open complaints, officer GSI after normalising empty officer IDs, daily analytics roll-ups, per-user notification items | approval (schema/cost) |
+| 12 | Accessibility audit, load test on AWS, real AWS measurements for the paper | deployed environment |
+
+The original plan follows.
+
 Ordering principle: fix correctness/security of what is already deployed first, then complete the MVP, then extend. Items marked **[needs deploy]** require `sam deploy`, which is never run without explicit owner approval.
 
 ## Phase 1 — Backend correctness and security (local code)

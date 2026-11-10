@@ -13,6 +13,7 @@ import {
 } from "aws-amplify/auth";
 
 const AuthContext = createContext(null);
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const DEMO_AUTH_ENABLED =
     import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_AUTH === "true";
@@ -79,6 +80,20 @@ export function AuthProvider({ children }) {
         const restore = async () => { await refreshSession(); };
         restore();
     }, []);
+
+    // Secure session handling: sign out real (non-demo) sessions after inactivity.
+    useEffect(() => {
+        if (!user || isDemo) return undefined;
+        let timer;
+        const reset = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => { signOut().finally(() => { setUser(null); setSession(null); setRole(null); }); }, IDLE_TIMEOUT_MS);
+        };
+        const events = ["pointerdown", "keydown", "scroll", "visibilitychange"];
+        events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+        reset();
+        return () => { clearTimeout(timer); events.forEach((e) => window.removeEventListener(e, reset)); };
+    }, [user, isDemo]);
 
     function demoLogin(selectedRole) {
         if (!DEMO_AUTH_ENABLED) return;

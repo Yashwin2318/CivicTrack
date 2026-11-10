@@ -129,8 +129,8 @@ export const api = {
   createComplaint: (auth, body) => apiRequest("/complaints", { auth, method: "POST", body }),
   updateDetails: (auth, id, body) => apiRequest(`/complaints/${enc(id)}`, { auth, method: "PATCH", body }),
   listOfficers: (auth) => apiRequest("/officers", { auth }),
-  assign: (auth, id, officerSub, reason) =>
-    apiRequest(`/complaints/${enc(id)}/assign`, { auth, method: "PATCH", body: { officerSub, ...(reason ? { reason } : {}) } }),
+  assign: (auth, id, officerSub, reason, force = false) =>
+    apiRequest(`/complaints/${enc(id)}/assign`, { auth, method: "PATCH", body: { officerSub, ...(reason ? { reason } : {}), ...(force ? { force: true } : {}) } }),
   unassign: (auth, id, reason) => apiRequest(`/complaints/${enc(id)}/unassign`, { auth, method: "PATCH", body: reason ? { reason } : {} }),
   start: (auth, id, body = {}) => apiRequest(`/complaints/${enc(id)}/start`, { auth, method: "PATCH", body }),
   resolve: (auth, id, body) => apiRequest(`/complaints/${enc(id)}/resolve`, { auth, method: "PATCH", body }),
@@ -138,7 +138,43 @@ export const api = {
   close: (auth, id, body = {}) => apiRequest(`/complaints/${enc(id)}/close`, { auth, method: "PATCH", body }),
   uploadOfficerPhoto: (auth, id, file, stage) =>
     uploadEvidence({ auth, file, uploadPath: `/complaints/${enc(id)}/proof-upload-url`, extraBody: { stage } }),
+  // Officer responses and progress
+  accept: (auth, id) => apiRequest(`/complaints/${enc(id)}/accept`, { auth, method: "PATCH", body: {} }),
+  decline: (auth, id, reason) => apiRequest(`/complaints/${enc(id)}/decline`, { auth, method: "PATCH", body: { reason } }),
+  progress: (auth, id, body) => apiRequest(`/complaints/${enc(id)}/progress`, { auth, method: "PATCH", body }),
+  // Admin decisions
+  reject: (auth, id, reason, duplicateOf) =>
+    apiRequest(`/complaints/${enc(id)}/reject`, { auth, method: "PATCH", body: { reason, ...(duplicateOf ? { duplicateOf } : {}) } }),
+  escalate: (auth, id, reason) => apiRequest(`/complaints/${enc(id)}/escalate`, { auth, method: "PATCH", body: { reason } }),
+  // Intelligence, notifications, profile, analytics
+  similar: (auth, body) => apiRequest("/complaints/similar", { auth, method: "POST", body }),
+  notifications: (auth) => apiRequest("/notifications", { auth }),
+  me: (auth) => apiRequest("/me", { auth }),
+  analytics: (auth, params) => apiRequest(`/analytics${toQuery(params)}`, { auth }),
+  // Reference data and administration
+  reference: (auth, withBoundaries = false) => apiRequest(`/reference${withBoundaries ? "?boundaries=1" : ""}`, { auth }),
+  initializeReference: (auth) => apiRequest("/admin/reference/initialize", { auth, method: "POST", body: {} }),
+  saveDepartment: (auth, id, body) => apiRequest(`/admin/departments/${enc(id)}`, { auth, method: "PUT", body }),
+  saveCategory: (auth, name, body) => apiRequest(`/admin/categories/${enc(name)}`, { auth, method: "PUT", body }),
+  saveZone: (auth, id, body) => apiRequest(`/admin/zones/${enc(id)}`, { auth, method: "PUT", body }),
+  saveWard: (auth, id, body) => apiRequest(`/admin/wards/${enc(id)}`, { auth, method: "PUT", body }),
+  importBoundaries: (auth, body) => apiRequest("/admin/boundaries/import", { auth, method: "POST", body }),
+  saveSettings: (auth, body) => apiRequest("/admin/settings", { auth, method: "PUT", body }),
+  auditLog: (auth, month) => apiRequest(`/admin/audit${toQuery({ month })}`, { auth }),
+  saveOfficerProfile: (auth, sub, body) => apiRequest(`/admin/officers/${enc(sub)}/profile`, { auth, method: "PUT", body }),
+  listUsers: (auth, role, nextToken) => apiRequest(`/admin/users${toQuery({ role, nextToken })}`, { auth }),
+  createUser: (auth, body) => apiRequest("/admin/users", { auth, method: "POST", body }),
+  updateUser: (auth, username, body) => apiRequest(`/admin/users/${enc(username)}`, { auth, method: "PATCH", body }),
 };
+
+export function toQuery(params = {}) {
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "" && v !== "ALL");
+  return entries.length ? `?${new URLSearchParams(entries).toString()}` : "";
+}
+
+export function slugify(name) {
+  return (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+}
 
 export function newRequestId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();

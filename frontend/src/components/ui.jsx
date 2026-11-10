@@ -20,7 +20,7 @@ export function formatRemaining(ms) {
   return ms < 0 ? `${text} overdue` : `${text} left`;
 }
 
-const SLA_TEXT = { on_track: "On track", warning: "Due soon", breached: "Overdue", met: "SLA met", missed: "SLA missed", unknown: "No SLA data" };
+const SLA_TEXT = { on_track: "On track", warning: "Due soon", breached: "Overdue", met: "SLA met", missed: "SLA missed", unknown: "No SLA data", not_applicable: "No SLA (rejected)" };
 
 export function SlaBadge({ sla, showTime = true }) {
   if (!sla) return null;

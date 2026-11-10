@@ -181,4 +181,36 @@ export function formatPercent(rate) {
   return rate === null || rate === undefined ? "—" : `${Math.round(rate * 100)}%`;
 }
 
+export function median(values) {
+  const v = values.filter((x) => typeof x === "number").sort((a, b) => a - b);
+  if (!v.length) return null;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+/** Same shape as the server's /analytics response, computed in the browser.
+ * Used only when the server endpoint is unavailable (older deployment). */
+export function clientAggregate(complaints, filters, granularity) {
+  const scoped = applyFilters(complaints, { ...filters, from: filters.from, to: filters.to });
+  const s = summarize(scoped);
+  const compliance = slaCompliance(scoped);
+  const hours = scoped.map(resolutionHours).filter((h) => h !== null);
+  const rows = (fn) => groupStats(scoped, fn).map((r) => ({ ...r, resolutionRate: r.total ? r.resolved / r.total : null, slaComplianceRate: r.slaRate }));
+  const rejected = scoped.filter((c) => c.status === "REJECTED").length;
+  return {
+    summary: {
+      total: s.total, open: s.open, resolved: s.resolved + s.closed, rejected, overdue: s.overdue, warning: s.warning,
+      resolutionRate: s.total - rejected ? (s.resolved + s.closed) / (s.total - rejected) : null,
+      avgResolutionHours: hours.length ? hours.reduce((a, b) => a + b, 0) / hours.length : null,
+      medianResolutionHours: median(hours), slaComplianceRate: compliance.rate, slaMet: compliance.met, slaEvaluated: compliance.evaluated,
+      reopenedEver: s.everReopened, escalated: s.escalated, newInPeriod: scoped.length,
+      byStatus: Object.fromEntries(["PENDING", "ASSIGNED", "IN_PROGRESS", "REOPENED", "RESOLVED", "CLOSED", "REJECTED"].map((k) => [k, scoped.filter((c) => c.status === k).length])),
+    },
+    byDepartment: rows((c) => c.department), byCategory: rows((c) => c.category), byPriority: rows((c) => c.priority),
+    byZone: rows((c) => c.zone), byWard: rows((c) => c.ward), byOfficer: rows((c) => c.assignedOfficerName || null).filter((r) => r.key !== "Unspecified"),
+    trend: trend(scoped, granularity).map((t) => ({ period: t.label, created: t.created, resolved: t.resolved })),
+    hotspots: [], mapped: scoped.filter((c) => c.hasCoords).length, source: "browser",
+  };
+}
+
 export { DAY, HOUR };

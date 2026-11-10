@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import app
-from conftest import call, sent_count
+from conftest import sent_count
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
 

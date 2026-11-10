@@ -34,16 +34,18 @@ cd frontend && npm test
 
 | Document | Contents |
 |---|---|
+| [FINAL_COMPLETION_REPORT.md](FINAL_COMPLETION_REPORT.md) | Verification results, feature status summary, risks, approvals needed |
 | [PROJECT_AUDIT.md](PROJECT_AUDIT.md) | What existed, defects and security findings |
 | [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) | Phased plan |
 | [FEATURE_STATUS.md](FEATURE_STATUS.md) | Done / partial / not done, local vs live |
 | [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) | System, lifecycle, SLA design |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Deploy, rollback, maintenance |
 | [AWS_RESOURCE_INVENTORY.md](AWS_RESOURCE_INVENTORY.md) | Every AWS resource |
-| [AWS_BUDGET_AUDIT.md](AWS_BUDGET_AUDIT.md) · [AWS_COST_MODEL.xlsx](AWS_COST_MODEL.xlsx) | Cost estimates (not billing) |
-| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Endpoints |
+| [AWS_COST_ESTIMATE.md](AWS_COST_ESTIMATE.md) · [AWS_BUDGET_AUDIT.md](AWS_BUDGET_AUDIT.md) · [AWS_COST_MODEL.xlsx](AWS_COST_MODEL.xlsx) | Cost estimates (not billing) |
+| [docs/API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md) | Endpoints |
 | [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Table and S3 layout |
 | [docs/SECURITY_ARCHITECTURE.md](docs/SECURITY_ARCHITECTURE.md) | Controls and residual risks |
 | [docs/UML_DIAGRAMS.md](docs/UML_DIAGRAMS.md) | Use case, class, sequence, activity, deployment, component, DFD |
 | [docs/TESTING_REPORT.md](docs/TESTING_REPORT.md) | What was tested and results |
 | [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | How each role uses the app |
+| [docs/IEEE_PAPER.md](docs/IEEE_PAPER.md) | Research paper draft (local/emulator results only) |

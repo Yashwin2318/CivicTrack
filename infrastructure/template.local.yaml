@@ -78,7 +78,7 @@ Resources:
       Name: CivicTrack-API-LOCAL
       StageName: dev
       Cors:
-        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowMethods: "'GET,POST,PUT,PATCH,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization,X-Local-Demo-Role,X-Local-Demo-Sub,X-Local-Demo-Email'"
         AllowOrigin: "'http://localhost:5173'"
 
@@ -248,6 +248,120 @@ Resources:
           Properties:
             RestApiId: !Ref CivicTrackApi
             Path: /officers
+            Method: GET
+        GetMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /me
+            Method: GET
+        GetReference:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /reference
+            Method: GET
+        GetNotifications:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /notifications
+            Method: GET
+        GetAnalytics:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /analytics
+            Method: GET
+        CheckSimilar:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/similar
+            Method: POST
+        AcceptAssignment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/accept
+            Method: PATCH
+        DeclineAssignment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/decline
+            Method: PATCH
+        ProgressUpdate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/progress
+            Method: PATCH
+        RejectComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/reject
+            Method: PATCH
+        EscalateComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/escalate
+            Method: PATCH
+        UpdateOfficerProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/officers/{officerSub}/profile
+            Method: PUT
+        InitializeReference:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/reference/initialize
+            Method: POST
+        PutDepartment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/departments/{departmentId}
+            Method: PUT
+        PutCategory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/categories/{category}
+            Method: PUT
+        PutZone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/zones/{zoneId}
+            Method: PUT
+        PutWard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/wards/{wardId}
+            Method: PUT
+        ImportBoundaries:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/boundaries/import
+            Method: POST
+        PutSettings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/settings
+            Method: PUT
+        GetAuditLog:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/audit
             Method: GET
 
 Outputs:

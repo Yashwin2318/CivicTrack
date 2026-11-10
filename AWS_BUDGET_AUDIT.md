@@ -8,11 +8,11 @@ The stack is fully serverless and pay-per-use: no EC2, NAT Gateway, load balance
 
 | Scenario (editable in workbook) | Complaints / month | Estimated monthly total* | Largest line item |
 |---|---|---|---|
-| Current (dev) | 10 | ≈ $0.07 | CloudWatch Logs |
-| Pilot ward | 1,000 | ≈ $13.71 | DynamoDB list scans (≈ $9.62) |
-| City scale | 50,000 | ≈ $13,311 | DynamoDB list scans (≈ $12,825, ~96%) |
+| Current (dev) | 10 | ≈ $0.07 (≈ $0.88/yr) | CloudWatch Logs |
+| Pilot ward | 1,000 | ≈ $14.94 (≈ $179/yr) | DynamoDB list scans (≈ $9.62) |
+| City scale | 50,000 | ≈ $13,761 (≈ $165k/yr) | DynamoDB scans (≈ 97% of total) |
 
-\*Formula results from the workbook with its default assumptions, before free tier. Change the inputs and totals recalculate.
+\*Formula results from the workbook with its default assumptions, before free tier, including the duplicate-check, analytics, notification-feed and GSI costs added in the platform-completion iteration. Full breakdown: `AWS_COST_ESTIMATE.md`.
 
 ## Findings
 

@@ -90,17 +90,35 @@ export default function ComplaintDetail({ complaint: initial, auth, onClose, ren
             {(c.zone || c.ward) && <div><dt>Zone / Ward</dt><dd>{c.zone || "—"} / {c.ward || "—"}</dd></div>}
             <div><dt><Clock size={14} /> Submitted</dt><dd>{formatDateTime(c.createdDate)}</dd></div>
             {c.sla?.deadline && <div><dt>SLA deadline</dt><dd>{formatDateTime(c.sla.deadline)} ({c.sla.hours} h)</dd></div>}
-            <div><dt><User size={14} /> Officer</dt><dd>{c.assignedOfficerName || "Not yet assigned"}</dd></div>
+            <div><dt><User size={14} /> Officer</dt><dd>{c.assignedOfficerName || (role === "Citizen" && c.status !== "PENDING" ? "Assigned (name withheld)" : "Not yet assigned")}</dd></div>
             {role !== "Citizen" && c.citizenEmail && <div><dt><Mail size={14} /> Reported by</dt><dd>{c.citizenEmail}</dd></div>}
             {c.resolvedDate && <div><dt>Resolved</dt><dd>{formatDateTime(c.resolvedDate)}</dd></div>}
             {c.reopenCount > 0 && <div><dt>Reopened</dt><dd>{c.reopenCount} time(s)</dd></div>}
-            {c.citizenRating && <div><dt>Citizen rating</dt><dd>{c.citizenRating} / 5</dd></div>}
+            {c.citizenRating && <div><dt>Citizen rating</dt><dd>{"★".repeat(c.citizenRating)}{"☆".repeat(5 - c.citizenRating)} ({c.citizenRating}/5)</dd></div>}
+            {c.acceptedAt && <div><dt>Officer accepted</dt><dd>{formatDateTime(c.acceptedAt)}</dd></div>}
+            {typeof c.percentComplete === "number" && c.status === "IN_PROGRESS" && (
+              <div className="ct-span-2"><dt>Work progress</dt><dd><div className="ct-progress" role="progressbar" aria-valuenow={c.percentComplete} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${c.percentComplete}%` }} /></div>{c.percentComplete}% complete</dd></div>
+            )}
             {notification && (
               <div><dt>Email update</dt><dd>{notification.sent ? "Sent" : "Not delivered"} for {NOTIFICATION_TEXT[notification.kind] || notification.kind} · {formatDateTime(notification.at)}</dd></div>
             )}
           </dl>
           <p className="ct-description">{c.description}</p>
           {c.resolutionNote && <p className="ct-description"><strong>Resolution note:</strong> {c.resolutionNote}</p>}
+          {c.status === "REJECTED" && (
+            <div className="ct-banner ct-banner-danger ct-mt">Closed without action: {c.rejectionReason}{c.duplicateOf ? ` (duplicate of ${c.duplicateOf})` : ""}</div>
+          )}
+          {c.citizenFeedback && <p className="ct-description"><strong>Citizen feedback:</strong> {c.citizenFeedback}</p>}
+          {role !== "Citizen" && (c.priorityReasons?.length > 0 || c.suggestedCategory) && (
+            <details className="ct-triage">
+              <summary>Automated triage (rule-based{typeof c.priorityScore === "number" ? `, score ${c.priorityScore}/100` : ""})</summary>
+              {c.summary && <p className="ct-small"><strong>Summary:</strong> {c.summary}</p>}
+              {c.suggestedCategory && <p className="ct-small">Keywords suggest category <strong>{c.suggestedCategory}</strong> (citizen chose {c.category}).</p>}
+              {c.citizenUrgency && <p className="ct-small">Citizen-marked urgency: {c.citizenUrgency}</p>}
+              {c.nearbyOpenCount > 0 && <p className="ct-small">{c.nearbyOpenCount} similar open complaint(s) within 200 m at submission.</p>}
+              <ul className="ct-small">{(c.priorityReasons || []).map((r) => <li key={r}>{r}</li>)}</ul>
+            </details>
+          )}
         </section>
 
         <section className="ct-drawer-section">
@@ -115,12 +133,13 @@ export default function ComplaintDetail({ complaint: initial, auth, onClose, ren
           )}
         </section>
 
-        {(c.photoKey || c.beforePhotoKey || c.proofPhotoKey) && (
+        {(c.photoKey || c.beforePhotoKey || c.proofPhotoKey || c.progressPhotoUrls?.length > 0) && (
           <section className="ct-drawer-section">
             <h4>Evidence</h4>
             <div className="ct-photos">
               <Photo hasKey={!!c.photoKey} url={c.photoUrl} label="Citizen evidence" />
               <Photo hasKey={!!c.beforePhotoKey} url={c.beforePhotoUrl} label="Officer – before work" />
+              {(c.progressPhotoKeys || []).map((key, i) => <Photo key={key} hasKey url={c.progressPhotoUrls?.[i]} label={`Progress photo ${i + 1}`} />)}
               <Photo hasKey={!!c.proofPhotoKey} url={c.proofPhotoUrl} label="Resolution proof" />
             </div>
           </section>

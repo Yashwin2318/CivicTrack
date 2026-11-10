@@ -1,15 +1,26 @@
 import { useState } from "react";
 import { Bell, Building2, LogOut, Menu, RefreshCw, X } from "lucide-react";
+import { ACTION_LABELS } from "../lib/lifecycle";
+import { formatDateTime } from "./ui";
 
-/** Shared layout for all three portals: navy sidebar, topbar, mobile drawer. */
-export default function PortalShell({ portal, nav, active, onNavigate, user, roleLabel, onLogout, onRefresh, refreshing, alerts = [], children, title }) {
+/** Shared layout for all three portals: navy sidebar, topbar, notification centre, mobile drawer. */
+export default function PortalShell({ portal, nav, active, onNavigate, user, roleLabel, onLogout, onRefresh, refreshing,
+  alerts = [], feed = [], unread = 0, onOpenFeed, onSelectComplaint, children, title }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const initials = (user?.username || portal).replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() || "CT";
+  const badge = alerts.length + unread;
 
   function go(id) {
     onNavigate(id);
     setMenuOpen(false);
+  }
+
+  function toggleAlerts() {
+    setAlertsOpen((open) => {
+      if (!open) onOpenFeed?.();
+      return !open;
+    });
   }
 
   return (
@@ -59,16 +70,27 @@ export default function PortalShell({ portal, nav, active, onNavigate, user, rol
               </button>
             )}
             <div className="ct-alerts">
-              <button type="button" className="ct-icon-btn" aria-label={`Notifications (${alerts.length})`} aria-expanded={alertsOpen} onClick={() => setAlertsOpen((v) => !v)}>
-                <Bell size={19} />{alerts.length > 0 && <span className="ct-dot">{alerts.length > 9 ? "9+" : alerts.length}</span>}
+              <button type="button" className="ct-icon-btn" aria-label={`Notifications (${badge})`} aria-expanded={alertsOpen} onClick={toggleAlerts}>
+                <Bell size={19} />{badge > 0 && <span className="ct-dot">{badge > 9 ? "9+" : badge}</span>}
               </button>
               {alertsOpen && (
                 <div className="ct-alerts-pop" role="dialog" aria-label="Notifications">
-                  <strong>Notifications</strong>
-                  {alerts.length === 0 && <p className="ct-muted">You're all caught up.</p>}
-                  {alerts.slice(0, 8).map((a) => (
+                  <div className="ct-alerts-head"><strong>Notifications</strong>
+                    <button type="button" className="ct-icon-btn" onClick={() => setAlertsOpen(false)} aria-label="Close notifications"><X size={16} /></button>
+                  </div>
+                  {alerts.length > 0 && <small className="ct-alerts-section">Needs attention</small>}
+                  {alerts.slice(0, 6).map((a) => (
                     <button key={a.id} type="button" className={`ct-alert-item ct-alert-${a.tone || "info"}`} onClick={() => { setAlertsOpen(false); a.onClick?.(); }}>
                       <span>{a.title}</span><small>{a.detail}</small>
+                    </button>
+                  ))}
+                  <small className="ct-alerts-section">Recent activity (30 days)</small>
+                  {feed.length === 0 && <p className="ct-muted ct-small">No recent activity.</p>}
+                  {feed.slice(0, 10).map((n) => (
+                    <button key={`${n.complaintId}-${n.at}-${n.action}`} type="button" className="ct-alert-item" onClick={() => { setAlertsOpen(false); onSelectComplaint?.(n.complaintId); }}>
+                      <span>{ACTION_LABELS[n.action] || n.action}: {n.complaintId}</span>
+                      <small>{n.title}{n.officerName ? ` · ${n.officerName}` : ""} · {formatDateTime(n.at)}</small>
+                      {n.note && <small className="ct-alert-note">“{n.note}”</small>}
                     </button>
                   ))}
                 </div>

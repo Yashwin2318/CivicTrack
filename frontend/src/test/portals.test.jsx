@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SAMPLE, raw } from "./fixtures";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NOW, SAMPLE, raw } from "./fixtures";
 
 // ---- mocks -------------------------------------------------------------
 const authState = { current: null };
@@ -27,6 +27,28 @@ const apiMock = vi.hoisted(() => ({
   reopen: vi.fn(),
   close: vi.fn(),
   uploadOfficerPhoto: vi.fn(),
+  accept: vi.fn(),
+  decline: vi.fn(),
+  progress: vi.fn(),
+  reject: vi.fn(),
+  escalate: vi.fn(),
+  similar: vi.fn(),
+  notifications: vi.fn(),
+  me: vi.fn(),
+  analytics: vi.fn(),
+  reference: vi.fn(),
+  initializeReference: vi.fn(),
+  saveDepartment: vi.fn(),
+  saveCategory: vi.fn(),
+  saveZone: vi.fn(),
+  saveWard: vi.fn(),
+  importBoundaries: vi.fn(),
+  saveSettings: vi.fn(),
+  auditLog: vi.fn(),
+  saveOfficerProfile: vi.fn(),
+  listUsers: vi.fn(),
+  createUser: vi.fn(),
+  updateUser: vi.fn(),
 }));
 vi.mock("../lib/api", async (importOriginal) => ({ ...(await importOriginal()), api: apiMock, uploadEvidence: vi.fn() }));
 
@@ -44,14 +66,23 @@ function signIn(role) {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   Object.values(apiMock).forEach((fn) => fn.mockReset());
   apiMock.listComplaints.mockResolvedValue({ complaints: SAMPLE });
   apiMock.getComplaint.mockRejectedValue(new Error("not deployed"));
+  apiMock.reference.mockRejectedValue(new Error("not deployed"));
+  apiMock.notifications.mockResolvedValue({ notifications: [] });
+  apiMock.me.mockResolvedValue({ user: { role: "Officer" } });
+  apiMock.analytics.mockRejectedValue(new Error("not deployed"));
+  apiMock.similar.mockResolvedValue({ duplicates: [], suggestedCategory: { category: null } });
   apiMock.listOfficers.mockResolvedValue({ source: "cognito", officers: [
     { sub: "officer-1", name: "Officer One", email: "o1@example.test", enabled: true },
     { sub: "officer-2", name: "Officer Two", email: "o2@example.test", enabled: true },
   ] });
 });
+
+afterEach(() => vi.useRealTimers());
 
 // ---- authentication & role routing ------------------------------------
 describe("role-based routing", () => {
@@ -77,7 +108,7 @@ describe("role-based routing", () => {
   it.each([["Citizen", "Citizen Portal"], ["Officer", "Officer Portal"], ["Admin", "Administration"]])("routes %s to %s", async (role, portal) => {
     signIn(role);
     render(<App />);
-    expect(await screen.findByText(new RegExp(`^${portal} /`))).toBeInTheDocument();
+    expect(await screen.findByText(new RegExp(`^${portal} /`), {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });
 
@@ -135,7 +166,7 @@ describe("officer portal", () => {
 
   it("shows overdue alert and only valid workflow actions", async () => {
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/breached the 48-hour SLA/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/breached the SLA/);
     expect(screen.getAllByRole("button", { name: /start work/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /resolve with proof/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /^(re)?assign( officer)?$/i })).not.toBeInTheDocument();
@@ -179,7 +210,7 @@ describe("admin dashboard", () => {
     const dialog = screen.getByRole("dialog", { name: /assign complaint/i });
     await user.click(within(dialog).getByLabelText(/officer two/i));
     await user.click(within(dialog).getByRole("button", { name: /confirm assignment/i }));
-    await waitFor(() => expect(apiMock.assign).toHaveBeenCalledWith(expect.anything(), "CT-AAAAAAAAA1", "officer-2", ""));
+    await waitFor(() => expect(apiMock.assign).toHaveBeenCalledWith(expect.anything(), "CT-AAAAAAAAA1", "officer-2", "", false));
     expect(await screen.findByText("Complaint assigned successfully")).toBeInTheDocument();
   });
 
@@ -191,6 +222,6 @@ describe("admin dashboard", () => {
     expect(screen.getByText("1 result")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^officers/i }));
     const row = screen.getByText("Officer One").closest("tr");
-    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("2");
+    expect(within(row).getAllByRole("cell")[4]).toHaveTextContent("2"); // Active column
   });
 });

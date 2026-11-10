@@ -137,3 +137,54 @@ describe("complaint form validation", () => {
     expect(body).toEqual({ title: "Broken streetlight", category: "Streetlights", location: "MG Road", description: "Light not working for a week", latitude: 12.971235, longitude: 77.591235, locationAccuracy: 13, photoKey: "k.jpg", clientRequestId: "req-123456789" });
   });
 });
+
+import { rankOfficers } from "../lib/assignment";
+import { clientAggregate, median } from "../lib/analytics";
+import { passwordProblem } from "../lib/validation";
+import { slugify, toQuery } from "../lib/api";
+
+describe("platform helpers", () => {
+  it("ranks officers transparently", () => {
+    const complaint = { departmentId: "pw", wardId: "w1", zoneId: "z1", hasCoords: false };
+    const officers = [
+      { sub: "a", enabled: true, active: 2, overdue: 0, activeComplaints: [], profile: { departmentId: "pw", wardIds: ["w1"], zoneIds: [], available: true, maxActive: 10 } },
+      { sub: "b", enabled: true, active: 0, overdue: 0, activeComplaints: [], profile: { departmentId: "x", wardIds: [], zoneIds: [], available: false, maxActive: 10 } },
+      { sub: "c", enabled: false, active: 0, overdue: 0, activeComplaints: [], profile: {} },
+    ];
+    const ranked = rankOfficers(complaint, officers);
+    expect(ranked.map((o) => o.sub)).toEqual(["a", "b"]);
+    expect(ranked[0].reasons).toEqual(expect.arrayContaining(["same department", "covers this ward"]));
+    expect(ranked[1].reasons).toContain("marked unavailable");
+  });
+
+  it("aggregates in the browser with the server's shape", () => {
+    const out = clientAggregate(list(), {}, "day");
+    expect(out.summary).toMatchObject({ total: 5, open: 3, resolved: 2, overdue: 1, rejected: 0 });
+    expect(out.summary.medianResolutionHours).toBeCloseTo(35);
+    expect(out.byDepartment.length).toBeGreaterThan(0);
+    expect(median([3, 1, 2])).toBe(2);
+    expect(median([])).toBeNull();
+  });
+
+  it("treats rejected complaints as outside the SLA", () => {
+    expect(slaState(raw({ status: "REJECTED", createdAt: "2026-11-01T00:00:00Z" }), NOW).state).toBe("not_applicable");
+  });
+
+  it.each([["short", /8 characters/], ["alllowercase1!", /upper/], ["NoNumbers!!", /number/], ["NoSymbol123", /symbol/], ["G00d!Pass", ""]])(
+    "password policy %s", (pw, expected) => {
+      if (expected) expect(passwordProblem(pw)).toMatch(expected);
+      else expect(passwordProblem(pw)).toBe("");
+    });
+
+  it("builds query strings and slugs safely", () => {
+    expect(toQuery({ month: "2026-11", role: "ALL", x: "", y: undefined })).toBe("?month=2026-11");
+    expect(toQuery({ q: "a&b c" })).toBe("?q=a%26b+c");
+    expect(slugify("Parks & Gardens!")).toBe("parks-gardens");
+  });
+
+  it("accepts admin-defined categories in form validation", () => {
+    const form = { title: "Fallen tree", category: "Trees", location: "MG Road", description: "Blocking the road since morning" };
+    expect(validateComplaintForm(form).category).toBeTruthy();
+    expect(validateComplaintForm(form, ["Trees"])).toEqual({});
+  });
+});

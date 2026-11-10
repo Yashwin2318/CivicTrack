@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 MOTO_PORT = int(os.environ.get("CT_MOTO_PORT", "5001"))
 API_PORT = int(os.environ.get("CT_API_PORT", "3000"))
@@ -36,6 +36,7 @@ os.environ.update({
     "AWS_REGION": "ap-south-1",
     "AWS_DEFAULT_REGION": "ap-south-1",
     "COMPLAINTS_TABLE": "Local-CivicTrack-Complaints",
+    "CONFIG_TABLE": "Local-CivicTrack-Config",
     "S3_BUCKET": "local-civictrack-evidence",
     "S3_INTERNAL_ENDPOINT_URL": MOTO_URL,
     "S3_PRESIGN_ENDPOINT_URL": MOTO_URL,
@@ -54,35 +55,57 @@ from moto.server import ThreadedMotoServer  # noqa: E402
 
 import app  # noqa: E402
 
-PEOPLE = {
-    "Officer": [
-        {"sub": "local-demo-officer", "email": "demo.officer@civictrack.local", "name": "Demo Officer", "username": "demo.officer", "enabled": True, "status": "CONFIRMED"},
-        {"sub": "local-demo-officer-2", "email": "ravi.officer@civictrack.local", "name": "Ravi Kumar (sample)", "username": "ravi", "enabled": True, "status": "CONFIRMED"},
-    ],
-    "Admin": [{"sub": "local-demo-admin", "email": "admin@civictrack.local", "name": "Demo Admin", "username": "admin", "enabled": True, "status": "CONFIRMED"}],
+# Demo logins in the frontend send fixed "local-demo-*" subjects. They are mapped
+# onto real users in the local (moto) Cognito pool, so the officer directory and
+# user administration run their production code paths.
+DEMO_USERS = {
+    "local-demo-citizen": ("demo.citizen@civictrack.local", "Demo Citizen", "Citizen"),
+    "local-demo-officer": ("demo.officer@civictrack.local", "Demo Officer", "Officer"),
+    "local-demo-officer-2": ("ravi.officer@civictrack.local", "Ravi Kumar (sample)", "Officer"),
+    "local-demo-admin": ("demo.admin@civictrack.local", "Demo Admin", "Admin"),
 }
-app.list_group_users = lambda group: PEOPLE.get(group, [])
+SUBS = {}
 
 
 def provision():
     ddb = boto3.client("dynamodb")
     ddb.create_table(TableName=app.TABLE_NAME, BillingMode="PAY_PER_REQUEST",
                      KeySchema=[{"AttributeName": "complaintId", "KeyType": "HASH"}],
-                     AttributeDefinitions=[{"AttributeName": "complaintId", "AttributeType": "S"}])
+                     AttributeDefinitions=[{"AttributeName": "complaintId", "AttributeType": "S"},
+                                           {"AttributeName": "citizenSub", "AttributeType": "S"},
+                                           {"AttributeName": "createdAt", "AttributeType": "S"}],
+                     GlobalSecondaryIndexes=[{"IndexName": app.CITIZEN_INDEX, "Projection": {"ProjectionType": "ALL"},
+                                              "KeySchema": [{"AttributeName": "citizenSub", "KeyType": "HASH"},
+                                                            {"AttributeName": "createdAt", "KeyType": "RANGE"}]}])
+    ddb.create_table(TableName=app.CONFIG_TABLE_NAME, BillingMode="PAY_PER_REQUEST",
+                     KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+                     AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}])
     s3 = boto3.client("s3")
     s3.create_bucket(Bucket=app.S3_BUCKET, CreateBucketConfiguration={"LocationConstraint": "ap-south-1"})
     s3.put_bucket_cors(Bucket=app.S3_BUCKET, CORSConfiguration={"CORSRules": [{
         "AllowedOrigins": [FRONTEND_ORIGIN], "AllowedMethods": ["PUT", "GET", "HEAD"], "AllowedHeaders": ["*"], "ExposeHeaders": ["ETag"]}]})
     boto3.client("ses").verify_email_identity(EmailAddress=app.SES_FROM_EMAIL)
 
+    cognito = boto3.client("cognito-idp")
+    pool_id = cognito.create_user_pool(PoolName="Local-CivicTrack-Users", UsernameAttributes=["email"])["UserPool"]["Id"]
+    for group in ("Citizen", "Officer", "Admin"):
+        cognito.create_group(GroupName=group, UserPoolId=pool_id)
+    for demo_sub, (email, name, group) in DEMO_USERS.items():
+        cognito.admin_create_user(UserPoolId=pool_id, Username=email, MessageAction="SUPPRESS",
+                                  UserAttributes=[{"Name": "email", "Value": email}, {"Name": "name", "Value": name}])
+        cognito.admin_add_user_to_group(UserPoolId=pool_id, Username=email, GroupName=group)
+        attrs = cognito.admin_get_user(UserPoolId=pool_id, Username=email)["UserAttributes"]
+        SUBS[demo_sub] = next(a["Value"] for a in attrs if a["Name"] == "sub")
+    app.USER_POOL_ID = pool_id
 
-def claims_event(method, path, body, headers):
+
+def claims_event(method, path, body, headers, query=None):
     lower = {k.lower(): v for k, v in headers.items()}
-    event = {"httpMethod": method, "path": path, "headers": dict(headers), "body": body, "requestContext": {}}
+    event = {"httpMethod": method, "path": path, "headers": dict(headers), "body": body, "requestContext": {}, "queryStringParameters": query}
     role = lower.get("x-local-demo-role")
     if role in ("Citizen", "Officer", "Admin"):
         event["requestContext"]["authorizer"] = {"claims": {
-            "sub": lower.get("x-local-demo-sub") or f"local-demo-{role.lower()}",
+            "sub": SUBS.get(lower.get("x-local-demo-sub") or f"local-demo-{role.lower()}", lower.get("x-local-demo-sub") or ""),
             "email": lower.get("x-local-demo-email") or f"demo.{role.lower()}@civictrack.local",
             "cognito:groups": role,
         }}
@@ -121,10 +144,10 @@ def seed():
     invoke("PATCH", f"/complaints/{ids[1]}", "Admin", "local-demo-admin", {"zone": "East", "ward": "Ward 80 (sample)"})
     invoke("PATCH", f"/complaints/{ids[2]}", "Admin", "local-demo-admin", {"zone": "South", "ward": "Ward 112 (sample)"})
     for cid in ids[1:4]:
-        invoke("PATCH", f"/complaints/{cid}/assign", "Admin", "local-demo-admin", {"officerSub": "local-demo-officer"})
+        invoke("PATCH", f"/complaints/{cid}/assign", "Admin", "local-demo-admin", {"officerSub": SUBS["local-demo-officer"]})
     invoke("PATCH", f"/complaints/{ids[2]}/start", "Officer", "local-demo-officer", {"note": "Crew dispatched"})
     invoke("PATCH", f"/complaints/{ids[3]}/start", "Officer", "local-demo-officer")
-    key = f"officers/local-demo-officer/complaints/{ids[3]}/proof/sample.png"
+    key = f"officers/{SUBS['local-demo-officer']}/complaints/{ids[3]}/proof/sample.png"
     png = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
                         "1f15c4890000000d49444154789c6360f8cfc0f01f0005000201e2213c9a0000000049454e44ae426082")
     boto3.client("s3").put_object(Bucket=app.S3_BUCKET, Key=key, Body=png, ContentType="image/png")
@@ -136,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
         self.send_header("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Local-Demo-Role,X-Local-Demo-Sub,X-Local-Demo-Email")
-        self.send_header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,OPTIONS")
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -146,11 +169,13 @@ class Handler(BaseHTTPRequestHandler):
     def _handle(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode() if length else None
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = {k: v[-1] for k, v in parse_qs(parsed.query).items()} or None
         if path == "/__dev/sla-sweep" and self.command == "POST":
             status, payload, headers = 200, json.dumps(app.process_sla_checks()), {}
         else:
-            result = app.lambda_handler(claims_event(self.command, path, body, dict(self.headers.items())), None)
+            result = app.lambda_handler(claims_event(self.command, path, body, dict(self.headers.items()), query), None)
             status, payload, headers = result["statusCode"], result["body"], result.get("headers", {})
         self.send_response(status)
         for key, value in headers.items():
@@ -160,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload.encode())
 
-    do_GET = do_POST = do_PATCH = _handle
+    do_GET = do_POST = do_PATCH = do_PUT = _handle
 
     def log_message(self, fmt, *args):
         sys.stdout.write("API %s\n" % (fmt % args))

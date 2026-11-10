@@ -4,7 +4,7 @@ import { CATEGORIES } from "./lifecycle";
 export const LIMITS = { title: 150, location: 250, description: 3000, landmark: 150 };
 
 /** Mirrors backend validation so citizens see errors before submitting. */
-export function validateComplaintForm(form) {
+export function validateComplaintForm(form, categories = CATEGORIES) {
   const errors = {};
   const title = (form.title || "").trim();
   const location = (form.location || "").trim();
@@ -12,7 +12,7 @@ export function validateComplaintForm(form) {
   if (!title) errors.title = "Give the issue a short title.";
   else if (title.length < 5) errors.title = "Title should be at least 5 characters.";
   else if (title.length > LIMITS.title) errors.title = `Title must be ${LIMITS.title} characters or fewer.`;
-  if (!CATEGORIES.includes(form.category)) errors.category = "Choose a category.";
+  if (!categories.includes(form.category)) errors.category = "Choose a category.";
   if (!location) errors.location = "Enter the address, area or nearest landmark.";
   else if (location.length > LIMITS.location) errors.location = `Location must be ${LIMITS.location} characters or fewer.`;
   if (!description) errors.description = "Describe the issue.";
@@ -37,6 +37,7 @@ export function buildComplaintPayload(form, photoKey, clientRequestId) {
     location: form.location.trim(),
     description: form.description.trim(),
     ...(form.landmark?.trim() ? { landmark: form.landmark.trim() } : {}),
+    ...(form.urgency && form.urgency !== "MEDIUM" ? { citizenUrgency: form.urgency } : {}),
     ...(form.coords ? {
       latitude: Number(form.coords.latitude.toFixed(6)),
       longitude: Number(form.coords.longitude.toFixed(6)),
@@ -45,4 +46,13 @@ export function buildComplaintPayload(form, photoKey, clientRequestId) {
     ...(photoKey ? { photoKey } : {}),
     ...(clientRequestId ? { clientRequestId } : {}),
   };
+}
+
+// Mirrors the Cognito pool password policy in infrastructure/template.yaml.
+export function passwordProblem(password) {
+  if (password.length < 8) return "Use at least 8 characters.";
+  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password)) return "Use upper- and lower-case letters.";
+  if (!/\d/.test(password)) return "Include a number.";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Include a symbol.";
+  return "";
 }

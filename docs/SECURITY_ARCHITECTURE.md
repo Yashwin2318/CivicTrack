@@ -47,6 +47,26 @@ Everything the browser sends is treated as untrusted, including its idea of the 
 | CSV export | Formula-injection neutralised | `lib/analytics.js` `csvCell` |
 | Local demo auth | Accepted only when `AWS_SAM_LOCAL=true` **and** `ENABLE_LOCAL_DEMO_AUTH=true` (backend) and `import.meta.env.DEV` (frontend); test proves headers are ignored when deployed | `test_local_demo_headers_rejected_when_deployed` |
 
+## Controls added in the platform-completion iteration
+
+| Concern | Control | Verified by |
+|---|---|---|
+| Admin-only routes | Every `/admin/*`, `/analytics`, `/officers` handler calls `require_admin` first | `test_admin_routes_reject_non_admins` (13 routes × 2 roles) |
+| Privilege escalation | Role only from token groups; request bodies cannot set roles; admins cannot change their own role or access | `test_unassigned_role_cannot_reach_admin`, `test_admin_cannot_change_own_access` |
+| User administration | Cognito `Admin*` actions scoped by IAM to **this user pool ARN only** (previously `userpool/*`); only the three CivicTrack groups are touched | template + moto Cognito tests |
+| IDOR on duplicate check | `/complaints/similar` returns other citizens' complaints as distance/status/category only — never ID or title | `test_duplicate_detection_hides_other_citizens_content` |
+| Disclosure control | Officer names can be withheld from citizens (`discloseOfficerName`); triage internals and SLA flags never sent to citizens | `test_officer_name_disclosure_setting` |
+| Abuse / rate limiting | Citizen complaint cap per hour (configurable); API Gateway stage throttling 25 rps / burst 50; 1 MB body cap | `test_citizen_rate_limit`, `test_oversized_body_rejected` |
+| Input sanitisation | Control characters rejected; names restricted (no `<`, `>`); IDs `[a-z0-9-]`; GeoJSON validated (type, closure, ranges, vertex/size caps) | admin + geo tests |
+| Evidence | New `progress` stage keeps the same prefix scoping and HeadObject verification | `test_progress_updates_with_photo` |
+| Audit logging | Admin configuration, user, assignment, rejection, escalation and close actions written to `AUDIT#YYYY-MM` | `test_audit_log_records_admin_actions` |
+| Secure errors | Uniform `{error, code}`; storage outages return generic 500 | failure-handling tests |
+| Structured logs | JSON lines with request ID; no emails, tokens or complaint free text | `test_logs_do_not_contain_recipient_addresses` |
+| Email minimisation | Citizen emails omit location and description; all emails omit evidence links | code review |
+| Session handling | 30-minute inactivity sign-out for real sessions | code review |
+| Data protection | `DeletionPolicy`/`UpdateReplacePolicy: Retain` on user pool, both tables and evidence bucket | cfn-lint + template |
+| Third-party data flow | Map tiles and Nominatim search go directly from the browser to OpenStreetMap; only the typed search text is sent, on explicit user action | code review |
+
 ## Residual risks and recommendations
 
 | Risk | Recommendation | Owner action |
@@ -59,3 +79,6 @@ Everything the browser sends is treated as untrusted, including its idea of the 
 | Presigned PUT cannot cap size at upload time | Size verified after upload; orphaned objects possible. A presigned POST policy with `content-length-range` would enforce at upload | future change |
 | No WAF / throttling plan | API Gateway default account throttling applies; add usage plan or WAF before public launch | cost decision |
 | Cognito sub list scan for officer lookup | Fine for tens of officers; cache or store officer profile for hundreds | future change |
+| Notification "read" state is per browser (localStorage) | Acceptable convenience; not security-relevant | — |
+| Nominatim/OSM tile usage policy | Fine for light use; heavy public use needs a commercial or self-hosted tile/geocoding service | cost decision |
+| Coarse permissions (3 roles) | Department-scoped admins would need a permission model beyond Cognito groups | future design |

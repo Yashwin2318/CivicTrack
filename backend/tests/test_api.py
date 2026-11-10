@@ -228,7 +228,7 @@ def test_metadata_update_admin_only(aws, make_complaint, role):
 
 
 def test_internal_errors_are_generic(aws, monkeypatch):
-    monkeypatch.setattr(app, "get_complaints", lambda user: (_ for _ in ()).throw(RuntimeError("secret detail")))
+    monkeypatch.setattr(app, "get_complaints", lambda *a: (_ for _ in ()).throw(RuntimeError("secret detail")))
     status, data = call("GET", "/complaints", "Admin")
-    assert status == 500 and data == {"error": "Internal server error"}
+    assert status == 500 and data == {"error": "Internal server error", "code": "INTERNAL_ERROR"}
     assert "secret" not in json.dumps(data)

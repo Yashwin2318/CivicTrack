@@ -8,9 +8,10 @@ export const STATUS = Object.freeze({
   RESOLVED: "RESOLVED",
   REOPENED: "REOPENED",
   CLOSED: "CLOSED",
+  REJECTED: "REJECTED",
 });
 
-export const STATUS_ORDER = ["PENDING", "ASSIGNED", "IN_PROGRESS", "REOPENED", "RESOLVED", "CLOSED"];
+export const STATUS_ORDER = ["PENDING", "ASSIGNED", "IN_PROGRESS", "REOPENED", "RESOLVED", "CLOSED", "REJECTED"];
 
 export const STATUS_LABELS = {
   PENDING: "Pending",
@@ -19,10 +20,11 @@ export const STATUS_LABELS = {
   RESOLVED: "Resolved",
   REOPENED: "Reopened",
   CLOSED: "Closed",
+  REJECTED: "Rejected",
 };
 
 export const OPEN_STATUSES = new Set(["PENDING", "ASSIGNED", "IN_PROGRESS", "REOPENED"]);
-export const FINAL_STATUSES = new Set(["RESOLVED", "CLOSED"]);
+export const FINAL_STATUSES = new Set(["RESOLVED", "CLOSED", "REJECTED"]);
 
 export const TRANSITIONS = {
   assign: ["PENDING", "REOPENED"],
@@ -32,6 +34,11 @@ export const TRANSITIONS = {
   resolve: ["IN_PROGRESS"],
   reopen: ["RESOLVED"],
   close: ["RESOLVED"],
+  accept: ["ASSIGNED", "REOPENED"],
+  decline: ["ASSIGNED"],
+  progress: ["IN_PROGRESS"],
+  reject: ["PENDING", "ASSIGNED", "REOPENED"],
+  escalate: ["PENDING", "ASSIGNED", "IN_PROGRESS", "REOPENED"],
 };
 
 export const CATEGORIES = ["Roads", "Sanitation", "Streetlights", "Waterlogging", "Water Supply", "Other"];
@@ -84,7 +91,7 @@ export function slaHoursOf(item) {
   return Number.isFinite(hours) ? Math.max(1, hours) : DEFAULT_SLA_HOURS;
 }
 
-/** state: unknown | on_track | warning | breached | met | missed */
+/** state: unknown | on_track | warning | breached | met | missed | not_applicable */
 export function slaState(item, now = Date.now(), warningHours = SLA_WARNING_HOURS) {
   const start = parseDate(item?.slaStartedAt) || parseDate(item?.createdAt);
   if (!start) return { state: "unknown", deadline: null, remainingMs: null };
@@ -95,7 +102,9 @@ export function slaState(item, now = Date.now(), warningHours = SLA_WARNING_HOUR
   const remainingMs = deadline.getTime() - now;
 
   let state;
-  if (FINAL_STATUSES.has(status)) {
+  if (status === "REJECTED") {
+    state = "not_applicable";
+  } else if (FINAL_STATUSES.has(status)) {
     const finished = parseDate(item?.resolvedAt) || parseDate(item?.closedAt);
     state = !finished || finished <= deadline ? "met" : "missed";
   } else if (now >= deadline.getTime()) {
@@ -173,4 +182,10 @@ export const ACTION_LABELS = {
   closed: "Closed",
   details_updated: "Details updated",
   sla_escalated: "SLA breached – escalated",
+  sla_escalated_level2: "Escalated to level 2 (24 h overdue)",
+  accepted: "Officer accepted the assignment",
+  assignment_declined: "Officer declined the assignment",
+  progress_update: "Progress update",
+  rejected: "Closed without action",
+  escalated: "Escalated by administrator",
 };

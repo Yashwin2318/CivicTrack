@@ -33,6 +33,8 @@ Globals:
 Resources:
   CivicTrackUserPool:
     Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       UserPoolName: CivicTrack-Users
       UsernameAttributes:
@@ -99,9 +101,14 @@ Resources:
       Name: CivicTrack-API
       StageName: dev
       Cors:
-        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowMethods: "'GET,POST,PUT,PATCH,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"
         AllowOrigin: !Sub "'${AllowedOrigin}'"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 25
+          ThrottlingBurstLimit: 50
       Auth:
         DefaultAuthorizer: CivicTrackCognitoAuthorizer
         AddDefaultAuthorizerToCorsPreflight: false
@@ -111,22 +118,60 @@ Resources:
 
   ComplaintsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: CivicTrack-Complaints
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: complaintId
           AttributeType: S
+        - AttributeName: citizenSub
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
       KeySchema:
         - AttributeName: complaintId
           KeyType: HASH
+      # Online, non-destructive addition: every existing item already has both attributes.
+      GlobalSecondaryIndexes:
+        - IndexName: citizenSub-createdAt-index
+          KeySchema:
+            - AttributeName: citizenSub
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       SSESpecification:
         SSEEnabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: false
 
+  ConfigTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: CivicTrack-Config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
   EvidenceBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -187,6 +232,7 @@ Resources:
                 Resource:
                   - !GetAtt ComplaintsTable.Arn
                   - !Sub "${ComplaintsTable.Arn}/index/*"
+                  - !GetAtt ConfigTable.Arn
         - PolicyName: CivicTrack-Evidence-S3-Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -203,7 +249,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - cognito-idp:ListUsersInGroup
-                Resource: !Sub "arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+                  - cognito-idp:AdminGetUser
+                  - cognito-idp:AdminListGroupsForUser
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminAddUserToGroup
+                  - cognito-idp:AdminRemoveUserFromGroup
+                  - cognito-idp:AdminEnableUser
+                  - cognito-idp:AdminDisableUser
+                Resource: !GetAtt CivicTrackUserPool.Arn
         - PolicyName: CivicTrack-SES-Send-Email
           PolicyDocument:
             Version: '2012-10-17'
@@ -233,6 +286,8 @@ Resources:
       Environment:
         Variables:
           COMPLAINTS_TABLE: !Ref ComplaintsTable
+          CONFIG_TABLE: !Ref ConfigTable
+          CITIZEN_INDEX: citizenSub-createdAt-index
           USER_POOL_ID: !Ref CivicTrackUserPool
           ALLOWED_ORIGIN: !Ref AllowedOrigin
           S3_BUCKET: !Ref EvidenceBucket
@@ -333,6 +388,138 @@ Resources:
             RestApiId: !Ref CivicTrackApi
             Path: /officers
             Method: GET
+        GetMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /me
+            Method: GET
+        GetReference:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /reference
+            Method: GET
+        GetNotifications:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /notifications
+            Method: GET
+        GetAnalytics:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /analytics
+            Method: GET
+        CheckSimilar:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/similar
+            Method: POST
+        AcceptAssignment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/accept
+            Method: PATCH
+        DeclineAssignment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/decline
+            Method: PATCH
+        ProgressUpdate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/progress
+            Method: PATCH
+        RejectComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/reject
+            Method: PATCH
+        EscalateComplaint:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /complaints/{complaintId}/escalate
+            Method: PATCH
+        ListUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/users
+            Method: GET
+        CreateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/users
+            Method: POST
+        UpdateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/users/{username}
+            Method: PATCH
+        UpdateOfficerProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/officers/{officerSub}/profile
+            Method: PUT
+        InitializeReference:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/reference/initialize
+            Method: POST
+        PutDepartment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/departments/{departmentId}
+            Method: PUT
+        PutCategory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/categories/{category}
+            Method: PUT
+        PutZone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/zones/{zoneId}
+            Method: PUT
+        PutWard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/wards/{wardId}
+            Method: PUT
+        ImportBoundaries:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/boundaries/import
+            Method: POST
+        PutSettings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/settings
+            Method: PUT
+        GetAuditLog:
+          Type: Api
+          Properties:
+            RestApiId: !Ref CivicTrackApi
+            Path: /admin/audit
+            Method: GET
 
   SlaScheduleRule:
     Type: AWS::Events::Rule
@@ -414,6 +601,9 @@ Outputs:
   AllowedFrontendOrigin:
     Description: Currently allowed browser origin
     Value: !Ref AllowedOrigin
+  ConfigTableName:
+    Description: Reference data, officer profiles, settings and audit log
+    Value: !Ref ConfigTable
   SesSenderEmail:
     Description: SES sender address configured for CivicTrack notifications
     Value: !Ref SesSenderEmail

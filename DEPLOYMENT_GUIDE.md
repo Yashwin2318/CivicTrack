@@ -32,6 +32,48 @@ backend/.venv/Scripts/cfn-lint infrastructure/template.yaml infrastructure/templ
 cd frontend && npm ci && npm run lint && npm test && npm run build
 ```
 
+## 2a. Deployment readiness review (2026-11-10)
+
+Read-only checks run against the live account (no changes made):
+
+| Check | Result |
+|---|---|
+| Stack `civictrack-dev` status | `UPDATE_COMPLETE`, last updated 2026-11-02 — nothing from this work has been deployed |
+| Name collision for new table `CivicTrack-Config` | none (only `CivicTrack-Complaints` exists) |
+| Live items compatible with the new GSI | 6 of 6 have non-empty string `citizenSub` and `createdAt` → all indexed |
+| Live statuses / categories | `PENDING`, `RESOLVED` / `Other`, `Roads` — all handled by the new code |
+| Templates | cfn-lint: 0 findings (both); router ↔ template parity test passes |
+
+**Backward compatibility with the deployed application**
+
+| Area | Impact |
+|---|---|
+| Existing complaints | Unchanged. Read with legacy mapping; new attributes added only when acted on. No migration. |
+| Existing users / Cognito | Pool, client and groups unchanged (Retain policies are metadata). Group membership still drives roles. |
+| Evidence in S3 | Existing objects untouched; key prefixes unchanged (new `progress/` prefix only for new uploads). |
+| Old frontend + new backend | Compatible: existing routes keep their shapes; errors gain a `code` field; categories the old form offers are all built-in. |
+| New frontend + old backend | Degrades gracefully: reference data, analytics and notifications fall back; admin management screens show errors until the backend is deployed. **Deploy the backend first.** |
+| Rollback | Archived code/template in `_archive/`; complaints moved to `ASSIGNED`/`REOPENED`/`CLOSED`/`REJECTED` by the new code would be unknown to the old code (manual decision). The config table and GSI would be removed from the stack only if the archived template is deployed; `DeletionPolicy: Retain` on the new table keeps its data. |
+
+**Risks**
+
+| Risk | Likelihood / impact | Mitigation |
+|---|---|---|
+| Change set shows replacement of a data resource | low / high | Review change set; abort on any `Replacement: True` for pool, client, groups, tables, bucket |
+| Cognito invitation emails limited (default Cognito email sending quota is small) | medium / low | Configure Cognito to send through SES for volume |
+| API throttling (25 rps, burst 50) too low for peaks | low / medium | Adjust `MethodSettings` |
+| Scan-heavy endpoints slow as data grows | grows with data / medium | Phase 11 in `IMPLEMENTATION_ROADMAP.md` |
+| SES sandbox: citizens do not receive email | certain until fixed / medium | Request production access |
+| CORS `*` | existing / low | Set `AllowedOrigin` after hosting the frontend |
+
+**Pre-deploy checklist**
+
+1. Commit the working tree (nothing is committed for this iteration yet).
+2. Install SAM CLI; run the test, lint and template commands in §2.
+3. `cd infrastructure && sam build && sam deploy` — review the change set against §3; answer **N** on anything unexpected.
+4. Smoke test (§4), then follow "After the backend deploy" below.
+5. Build the frontend with a `.env.production` created from `frontend/.env.example`.
+
 ## 3. Deploy the backend (owner approval required)
 
 > **Untested commands.** SAM CLI was not installed on the development machine, so the two commands below have not been executed. They rely on SAM's defaults: run from `infrastructure/`, SAM reads `samconfig.toml` next to `template.yaml` and builds into `infrastructure/.aws-sam/` (git-ignored). `CodeUri: ../backend/...` resolves relative to the template.
@@ -48,18 +90,29 @@ cd infrastructure && sam deploy
 
 | Resource | Action | Why |
 |---|---|---|
-| ComplaintsFunction | Modify | new code, new env var |
-| ComplaintsExecutionRole | Modify | `dynamodb:DeleteItem` removed |
-| EvidenceBucket | Modify (Replacement: False) | lifecycle rule added |
-| CivicTrackApi | Modify | six new routes |
+| ConfigTable (`CivicTrack-Config`) | **Add** | new reference/settings/audit table (additive) |
+| ComplaintsTable | Modify (Replacement: **False**) | adds GSI `citizenSub-createdAt-index` online; retention policy metadata |
+| CivicTrackUserPool, EvidenceBucket | Modify (Replacement: False) or no change | `DeletionPolicy/UpdateReplacePolicy: Retain` (metadata); bucket lifecycle rule |
+| ComplaintsFunction | Modify | new code; env vars `CONFIG_TABLE`, `CITIZEN_INDEX`, `VIEW_URL_TTL_SECONDS` |
+| ComplaintsExecutionRole | Modify | config-table access; Cognito admin actions scoped to this pool ARN; `DeleteItem` removed |
+| CivicTrackApi | Modify | 28 new routes, `PUT` in CORS |
 | `CivicTrackApiDeployment<hash>` (new) | Add | SAM creates a new API deployment whenever routes change |
 | `CivicTrackApiDeployment<hash>` (old) | **Remove — expected** | the superseded deployment snapshot; the `dev` stage moves to the new one |
-| CivicTrackApidevStage | Modify | points at the new deployment |
-| ComplaintsFunction…Permission… (×6) | Add | invoke permissions for the new routes |
+| CivicTrackApidevStage | Modify | new deployment + throttling (25 rps, burst 50) |
+| ComplaintsFunction…Permission… (×28) | Add | invoke permissions for the new routes |
 
 **Stop and answer N** if any row shows `Remove` or `Replacement: True` for `CivicTrackUserPool`, `CivicTrackUserPoolClient`, the Cognito groups, `ComplaintsTable` or `EvidenceBucket`, or if any resource not listed above changes.
 
-**Compatibility:** existing records need no migration. `PENDING`+officer rows are read as `ASSIGNED`; the first action on an old row creates its `history` list.
+**GSI build:** DynamoDB backfills the new index in the background (seconds for the current 6 items). CloudFormation waits for it to become ACTIVE. Until then the citizen list uses the built-in scan fallback, so nothing breaks.
+
+**Compatibility:** existing records need no migration. `PENDING`+officer rows are read as `ASSIGNED`; the first action on an old row creates its `history` list. With an empty config table the API serves the built-in departments and categories.
+
+### After the backend deploy (admin portal, no AWS console needed)
+
+1. **Departments** → *Save defaults now* (persists the built-in departments/categories so they can be edited).
+2. **Users & Roles** → invite officers; **Officers** → set each officer's department, zones/wards, availability and workload cap.
+3. **Zones & Wards** → create zones/wards, or import the official boundary GeoJSON with its source and licence. Complaints are only auto-located once boundaries exist; **no boundaries are shipped with CivicTrack**.
+4. **Settings** → confirm the SLA hours (48), warning hours (4) and the citizen rate limit.
 
 **Rollback:** the code and template running in AWS before this work are kept in git:
 
