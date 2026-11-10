@@ -1,6 +1,6 @@
 # CivicTrack — Feature Status
 
-Updated 2026-11-10 (platform-completion iteration, final verification). **Local** = implemented in the repository and verified by automated tests and/or a browser run against the local stack. **Live** = running in the deployed `civictrack-dev` stack. **Nothing from this iteration is live until the owner approves a deployment** (`DEPLOYMENT_GUIDE.md`).
+Updated 2026-11-10 (platform-completion iteration, final verification). **Local** = implemented in the repository and verified by automated tests and/or a browser run against the local stack. **Live** = running in the deployed `civictrack-dev` stack. **The backend of this iteration was deployed on 2026-11-10** (all backend features below are live on the API). The new frontend has not yet been built and hosted, so users of the currently hosted frontend still see the older UI.
 
 Legend: ✅ done · 🟡 partial / limited · ⛔ not done (reason given)
 
@@ -92,7 +92,7 @@ Legend: ✅ done · 🟡 partial / limited · ⛔ not done (reason given)
 ## Not done / blocked
 | Item | Blocker |
 |---|---|
-| Deployment of this iteration | Owner approval (`DEPLOYMENT_GUIDE.md`) |
+| Frontend build + hosting | Owner decision on hosting (A7) |
 | Official ward/zone boundaries | Dataset + licence from owner (e.g. BBMP/GBA ward GeoJSON) |
 | SES production access | AWS request by owner; until then only verified recipients get email |
 | Live officer GPS tracking | Not implemented by design (consent, privacy, cost) |

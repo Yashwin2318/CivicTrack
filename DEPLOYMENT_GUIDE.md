@@ -32,6 +32,26 @@ backend/.venv/Scripts/cfn-lint infrastructure/template.yaml infrastructure/templ
 cd frontend && npm ci && npm run lint && npm test && npm run build
 ```
 
+## Deployment record — 2026-11-10
+
+| Step | Result |
+|---|---|
+| Pre-deploy backup | `civictrack-pre-deploy-20261110` (6 items) — AVAILABLE |
+| Build | SAM CLI 1.171.0, `sam build` in `infrastructure/` (python3.14) |
+| Change set | `samcli-deploy1794310518`: 30 add, 8 modify, 1 delete (old API deployment), 0 replacements |
+| Execution | started 11:55:12 UTC, `UPDATE_COMPLETE` 11:57:09 UTC, no failures or rollback |
+| Citizen GSI | backfill finished ~4.5 min after stack completion; ACTIVE with 6 items (citizen lists used the scan fallback meanwhile) |
+| Smoke checks | `/health` 200; all new routes 401 without/with forged token; CORS preflight allows PUT; 6 complaints and 8 evidence objects intact; throttling 25/50; lifecycle rule enabled |
+| First SLA sweep on new code (12:01 UTC) | 0 errors; 2 one-time level-2 escalation emails for the 2 previously escalated open complaints |
+
+**Artifact bucket note:** the SAM-managed bucket (`aws-sam-cli-managed-default` stack) no longer exists, so future deploys must use the existing bucket instead of `resolve_s3`:
+
+```bash
+cd infrastructure && sam build && sam deploy --no-resolve-s3 --s3-bucket civictrack-sam-artifacts-<account-id>-ap-south-1 --s3-prefix civictrack-dev
+```
+
+Rollback point: the backup above plus `backend/_archive/app_deployed_2026-11-02.py` and `infrastructure/_archive/template_deployed_2026-11-02.yaml`.
+
 ## 2a. Deployment readiness review (2026-11-10)
 
 Read-only checks run against the live account (no changes made):

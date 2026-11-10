@@ -1,6 +1,6 @@
 # CivicTrack — Final Completion Report
 
-Date: 2026-11-10. Branch `master`, last commit `42ab30a`. All work since then is **uncommitted** in the working tree. **Nothing has been deployed, pushed or changed in AWS.** The live stack `civictrack-dev` still runs the 2026-11-02 code (archived in `backend/_archive/app_deployed_2026-11-02.py`).
+Date: 2026-11-10. Branch `master`, last commit `42ab30a`. All work since then is **uncommitted** in the working tree. **Update 2026-11-10 12:05 UTC: the backend was deployed** to `civictrack-dev` (change set `samcli-deploy1794310518`, `UPDATE_COMPLETE`, smoke checks passed; see `DEPLOYMENT_GUIDE.md` deployment record). The frontend is not yet rebuilt/hosted; nothing has been pushed to GitHub.
 
 ## 1. Verification results (run 2026-11-10)
 
@@ -140,7 +140,7 @@ backend/.venv/Scripts/python backend/tools/benchmark.py 300
 | # | Action | Type |
 |---|---|---|
 | A1 | Commit the current working tree (suggested message: `feat: complete platform — reference data, user admin, GIS boundaries, analytics, intelligence, docs`) | git |
-| A2 | Install SAM CLI and run `sam build` / `sam deploy` from `infrastructure/` after reviewing the change set (`DEPLOYMENT_GUIDE.md` §2a–3) | AWS change |
+| A2 | ~~Deploy the backend~~ — **done 2026-11-10** (backup `civictrack-pre-deploy-20261110`) | AWS change |
 | A3 | Provide official ward/zone GeoJSON (with licence) for import | data |
 | A4 | Request SES production access | AWS account |
 | A5 | Set CloudWatch log retention to 30 days | AWS change |

@@ -339,6 +339,9 @@ export default function CitizenPortal({ onLogout }) {
     </>
   ) : null);
 
+  const tokenClaims = auth.session?.tokens?.idToken?.payload || {};
+  const greetingName = tokenClaims.name || (tokenClaims.email ? String(tokenClaims.email).split("@")[0] : "");
+
   const reportButton = <button type="button" className="ct-btn ct-btn-primary" onClick={() => openForm()}><Plus size={17} /> Report an issue</button>;
 
   let body;
@@ -348,7 +351,7 @@ export default function CitizenPortal({ onLogout }) {
     body = (
       <>
         <section className="ct-hero">
-          <div><p className="ct-eyebrow">CIVIC SERVICES PLATFORM</p><h2>Good day{auth.user?.username ? `, ${auth.user.username.split("@")[0]}` : ""}</h2><p>Report civic issues, track progress and help build a better city.</p></div>
+          <div><p className="ct-eyebrow">CIVIC SERVICES PLATFORM</p><h2>Good day{greetingName ? `, ${greetingName}` : ""}</h2><p>Report civic issues, track progress and help build a better city.</p></div>
           {reportButton}
         </section>
         <div className="ct-stats">

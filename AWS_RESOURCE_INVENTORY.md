@@ -1,6 +1,6 @@
 # CivicTrack — AWS Resource Inventory
 
-Account `9862…` (masked), region **ap-south-1**, CloudFormation stack **`civictrack-dev`** (status `UPDATE_COMPLETE`, last updated 2026-11-02). Verified read-only on 2026-11-09 (not re-queried on 2026-11-10; no AWS call was made in later work). The last column lists **all changes in `infrastructure/template.yaml` that are not yet deployed** (both local iterations). Every resource below is defined in `infrastructure/template.yaml`; no resource exists outside the stack except the SAM artifact bucket and the Lambda-created log groups.
+Account `9862…` (masked), region **ap-south-1**, CloudFormation stack **`civictrack-dev`** (status `UPDATE_COMPLETE`, last updated 2026-11-02). Verified read-only on 2026-11-09 (not re-queried on 2026-11-10; no AWS call was made in later work). The last column lists the changes from both local iterations; **all of them were deployed on 2026-11-10** (stack `UPDATE_COMPLETE` 11:57 UTC). Every resource below is defined in `infrastructure/template.yaml`; no resource exists outside the stack except the SAM artifact bucket and the Lambda-created log groups.
 
 | Logical ID | Type | Physical name / identifier | Purpose | Change in this work (not deployed) |
 |---|---|---|---|---|
