@@ -383,7 +383,9 @@ def list_group_users(group_name):
             users.append({
                 "sub": attributes.get("sub", ""),
                 "email": attributes.get("email", "").strip(),
-                "name": attributes.get("name") or member.get("Username") or "",
+                # Pools that sign in by email use the opaque sub as Username; fall back to the
+                # email so officers never show up as a UUID in assignments and timelines.
+                "name": attributes.get("name") or attributes.get("email", "").strip() or member.get("Username") or "",
                 "username": member.get("Username", ""),
                 "enabled": bool(member.get("Enabled", True)),
                 "status": member.get("UserStatus", ""),

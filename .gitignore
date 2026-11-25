@@ -33,3 +33,7 @@ demo-assets/
 
 # Stray lockfile from running npm in the repo root (real one is frontend/package-lock.json)
 /package-lock.json
+
+# Research paper exports (out of scope; contain author contact details)
+docs/CivicTrack_*Paper*.docx
+docs/CivicTrack_*Paper*.pdf

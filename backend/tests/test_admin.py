@@ -170,6 +170,20 @@ def test_user_admin_create_list_role_and_disable(cognito):
     assert call("PATCH", f"/admin/users/{username}", "Admin", admin_sub, {"role": "Superuser"})[0] == 400
 
 
+def test_officer_without_name_attribute_is_shown_by_email(cognito, make_complaint):
+    """Officers created without a `name` attribute (as in the live pool) must not appear as a UUID."""
+    import app
+    client, pool = cognito["client"], cognito["pool_id"]
+    client.admin_create_user(UserPoolId=pool, Username="field@civictrack.test", MessageAction="SUPPRESS",
+                             UserAttributes=[{"Name": "email", "Value": "field@civictrack.test"}])
+    client.admin_add_user_to_group(UserPoolId=pool, Username="field@civictrack.test", GroupName="Officer")
+    officers = app.list_group_users("Officer")
+    assert [o["name"] for o in officers] == ["field@civictrack.test"]
+    cid = make_complaint()["complaintId"]
+    status, data = call("PATCH", f"/complaints/{cid}/assign", "Admin", body={"officerSub": officers[0]["sub"]})
+    assert status == 200 and data["complaint"]["assignedOfficerName"] == "field@civictrack.test"
+
+
 def test_admin_cannot_change_own_access(cognito):
     admin_sub = cognito["add_user"]("self@civictrack.test", "Admin", "Self")
     status, data = call("PATCH", "/admin/users/self@civictrack.test", "Admin", admin_sub, {"role": "Citizen"})

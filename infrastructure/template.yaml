@@ -9,18 +9,26 @@ Parameters:
     Description: Browser origin allowed to call the API and upload evidence. Restrict this to the deployed frontend origin after hosting.
   SesSenderEmail:
     Type: String
-    Default: yashwinunofficially@gmail.com
-    Description: Verified Amazon SES sender identity. Verify this address using the SES verification email before expecting delivery.
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Verified Amazon SES sender identity (no default, so no personal address lives in the repository). Pass it with --parameter-overrides on deploy.
   AdminNotificationEmail:
     Type: String
-    Default: yashwinunofficially@gmail.com
-    Description: Administrator mailbox for new complaint and SLA notifications.
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Administrator mailbox for new complaint and SLA notifications. Pass it with --parameter-overrides on deploy.
+  EnableFrontendHosting:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create a private S3 bucket and a CloudFront distribution that serve the built frontend over HTTPS (within the CloudFront always-free tier at pilot scale).
   SlaWarningHours:
     Type: Number
     Default: 4
     MinValue: 1
     MaxValue: 24
     Description: Send the first SLA warning this many hours before the 48-hour deadline.
+
+Conditions:
+  HostFrontend: !Equals [!Ref EnableFrontendHosting, 'true']
 
 Globals:
   Function:
@@ -585,7 +593,111 @@ Resources:
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt CivicTrackUserPool.Arn
 
+  # ---- Optional static hosting for the built frontend (EnableFrontendHosting=true) ----
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Condition: HostFrontend
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "civictrack-frontend-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  FrontendOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: HostFrontend
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "civictrack-frontend-oac-${AWS::StackName}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: HostFrontend
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: CivicTrack web frontend
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: frontend-s3
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt FrontendOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: frontend-s3
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: HostFrontend
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt FrontendBucket.Arn
+              - !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
 Outputs:
+  FrontendUrl:
+    Condition: HostFrontend
+    Description: HTTPS address of the hosted frontend
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+  FrontendBucketName:
+    Condition: HostFrontend
+    Description: Bucket that holds the built frontend (upload frontend/dist here)
+    Value: !Ref FrontendBucket
+  FrontendDistributionId:
+    Condition: HostFrontend
+    Description: CloudFront distribution to invalidate after each upload
+    Value: !Ref FrontendDistribution
   ApiUrl:
     Description: CivicTrack API endpoint
     Value: !Sub "https://${CivicTrackApi}.execute-api.${AWS::Region}.amazonaws.com/dev/"

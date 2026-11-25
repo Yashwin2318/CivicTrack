@@ -47,10 +47,22 @@ cd frontend && npm ci && npm run lint && npm test && npm run build
 **Artifact bucket note:** the SAM-managed bucket (`aws-sam-cli-managed-default` stack) no longer exists, so future deploys must use the existing bucket instead of `resolve_s3`:
 
 ```bash
-cd infrastructure && sam build && sam deploy --no-resolve-s3 --s3-bucket civictrack-sam-artifacts-<account-id>-ap-south-1 --s3-prefix civictrack-dev
+cd infrastructure && sam build && sam deploy --no-resolve-s3 --s3-bucket civictrack-sam-artifacts-<account-id>-ap-south-1 --s3-prefix civictrack-dev --parameter-overrides AllowedOrigin='*' SesSenderEmail=<verified-sender> AdminNotificationEmail=<admin-mailbox> EnableFrontendHosting=false
 ```
 
+`SesSenderEmail` and `AdminNotificationEmail` no longer have defaults (no personal address in the repository), so pass the current values on every deploy. Set `EnableFrontendHosting=true` to add the hosting resources in §5.
+
 Rollback point: the backup above plus `backend/_archive/app_deployed_2026-11-02.py` and `infrastructure/_archive/template_deployed_2026-11-02.yaml`.
+
+## Deployment record — 2026-11-25
+
+| Step | Result |
+|---|---|
+| Hosting attempt 1 (`EnableFrontendHosting=true`) | Rolled back: IAM user lacked `cloudfront:CreateOriginAccessControl`. Owner attached a managed `civictrack-cloudfront` policy. |
+| Hosting attempt 2 | Rolled back: CloudFront returned "Your account must be verified before you can add new CloudFront resources". AWS Support case opened by the owner (account and billing). The empty retained `civictrack-frontend-…` bucket was deleted so a later attempt can recreate it. |
+| Backend-only deploy (`EnableFrontendHosting=false`) | `UPDATE_COMPLETE`; 4 in-place modifications, no adds, deletes or replacements. Officer names now fall back to email. `/health` 200, protected routes 401 without a token; deployed `app.py` confirmed to contain the fix. |
+
+**Next:** once AWS Support verifies the account, rerun the §2 deploy command with `EnableFrontendHosting=true`, then follow §5 to upload `frontend/dist` and invalidate the distribution.
 
 ## 2a. Deployment readiness review (2026-11-10)
 
@@ -157,7 +169,19 @@ Then, signed in through the frontend: citizen submits with a pin and photo → a
 cd frontend && npm run build
 ```
 
-`.env` files are git-ignored, so a fresh clone has none. Before building, copy `frontend/.env.example` to `frontend/.env.production` and fill in the API URL, user pool ID and app client ID (the stack outputs `ApiUrl`, `UserPoolId`, `UserPoolClientId`), with `VITE_ENABLE_DEMO_AUTH=false`. Without it the build still succeeds but points at `http://127.0.0.1:3000` with no Cognito configuration. The build output in `frontend/dist/` is static and can be hosted anywhere. Hosting on S3 + CloudFront would add new AWS resources (small cost) and is **not** included — decide the hosting target, then set the stack parameter `AllowedOrigin` to that exact origin (e.g. `https://civictrack.example.org`) and redeploy so API and S3 CORS stop accepting `*`.
+`.env` files are git-ignored, so a fresh clone has none. Before building, copy `frontend/.env.example` to `frontend/.env.production` and fill in the API URL, user pool ID and app client ID (the stack outputs `ApiUrl`, `UserPoolId`, `UserPoolClientId`), with `VITE_ENABLE_DEMO_AUTH=false`. Without it the build still succeeds but points at `http://127.0.0.1:3000` with no Cognito configuration. The build output in `frontend/dist/` is static and can be hosted anywhere.
+
+**Optional hosting in the stack (needs approval).** Deploying with `EnableFrontendHosting=true` adds a private S3 bucket, a CloudFront origin access control, a CloudFront distribution (HTTPS, SPA fallback to `index.html`) and a bucket policy that only CloudFront can read. At pilot traffic this stays inside the CloudFront always-free tier (1 TB and 10 million requests a month) plus a few MB of S3 storage. Then publish the build:
+
+```bash
+aws s3 sync frontend/dist s3://<FrontendBucketName> --delete
+```
+
+```bash
+aws cloudfront create-invalidation --distribution-id <FrontendDistributionId> --paths "/*"
+```
+
+Open the `FrontendUrl` stack output. Once it works, consider redeploying with `AllowedOrigin=<FrontendUrl>` so API and evidence CORS stop accepting `*` (local development against the live API then stops working, which is the intended trade-off).
 
 ## 6. Recommended one-off changes (each needs approval)
 
